@@ -11,6 +11,7 @@ from cves.resources import (
     VendorViewSet,
     WeaknessCveViewSet,
     WeaknessViewSet,
+    CveDetailAPIView,
 )
 from organizations.resources import OrganizationViewSet
 from projects.resources import ProjectCveViewSet, ProjectViewSet
@@ -67,4 +68,5 @@ urlpatterns = [
     path("api/", include(vendors_router.urls)),
     path("api/", include(products_cves_router.urls)),
     path("api/", include(weaknesses_router.urls)),
+    path("api/cve/<str:cve_id>/", CveDetailAPIView.as_view(), name="cve-detail-api"),
 ]
