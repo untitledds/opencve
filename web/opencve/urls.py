@@ -48,6 +48,8 @@ products_cves_router = routers.NestedSimpleRouter(
 )
 products_cves_router.register(f"cve", ProductCveViewSet, basename="product-cves")
 
+cve_detail_router = routers.NestedSimpleRouter(router, r"cve", lookup="cve")
+cve_detail_router.register(r"detail", CveDetailAPIView, basename="cve-detail")
 
 urlpatterns = [
     path("__debug__/", include("debug_toolbar.urls")),
@@ -68,5 +70,5 @@ urlpatterns = [
     path("api/", include(vendors_router.urls)),
     path("api/", include(products_cves_router.urls)),
     path("api/", include(weaknesses_router.urls)),
-    path("api/cve/<str:cve_id>/", CveDetailAPIView.as_view(), name="cve-detail-api"),
+    path("api/", include(cve_detail_router.urls)),
 ]
