@@ -99,3 +99,25 @@ class WeaknessCveViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
             .filter(weaknesses__contains=weakness.cwe_id)
             .all()
         )
+
+class CveDetailAPIView(generics.RetrieveAPIView):
+    queryset = Cve.objects.all()
+    serializer_class = CveDetailSerializer
+    lookup_field = 'cve_id'
+
+    def get_object(self):
+        """
+        Переопределяем метод get_object, чтобы использовать cve_id в качестве поля поиска.
+        """
+        queryset = self.get_queryset()
+        filter_kwargs = {self.lookup_field: self.kwargs[self.lookup_field]}
+        obj = get_object_or_404(queryset, **filter_kwargs)
+        return obj
+
+    def get_serializer_context(self):
+        """
+        Переопределяем метод get_serializer_context, чтобы добавить дополнительный контекст в сериализатор.
+        """
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
