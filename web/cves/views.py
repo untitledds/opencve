@@ -333,10 +333,12 @@ class SubscriptionView(LoginRequiredMixin, OrganizationRequiredMixin, TemplateVi
             project.save()
 
         return JsonResponse({"status": "ok"})
-class CveDetailAPIView(generics.RetrieveAPIView):
+
+class CveDetailAPIView(viewsets.GenericViewSet, mixins.RetrieveModelMixin):
     queryset = Cve.objects.all()
     serializer_class = CveDetailSerializer
-    lookup_field = 'cve_id'
+    permission_classes = (permissions.IsAuthenticated,)  # Добавляем permission_classes
+    lookup_field = 'cve_id'  # Добавляем lookup_field
 
     def get_object(self):
         """
