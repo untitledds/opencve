@@ -16,6 +16,9 @@ from organizations.mixins import OrganizationRequiredMixin
 from projects.models import Project
 from users.models import CveTag, UserTag
 
+from rest_framework import generics
+from .serializers import CveDetailSerializer
+
 
 def list_filtered_cves(request):
     """
@@ -302,7 +305,7 @@ class SubscriptionView(LoginRequiredMixin, OrganizationRequiredMixin, TemplateVi
         # Vendor subscription
         if obj_type == "vendor":
             vendor = get_object_or_404(Vendor, id=obj_id)
-            project_vendors = set(project.subscriptions.get("vendors"))
+            project_vendors = set(project.subscriptions.get("vendors", []))
 
             if action == "subscribe":
                 project_vendors.add(vendor.name)
@@ -315,9 +318,10 @@ class SubscriptionView(LoginRequiredMixin, OrganizationRequiredMixin, TemplateVi
             project.subscriptions["vendors"] = list(project_vendors)
             project.save()
 
+        # Product subscription
         if obj_type == "product":
             product = get_object_or_404(Product, id=obj_id)
-            project_products = set(project.subscriptions.get("products"))
+            project_products = set(project.subscriptions.get("products", []))
 
             if action == "subscribe":
                 project_products.add(product.vendored_name)
