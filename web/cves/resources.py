@@ -100,7 +100,7 @@ class WeaknessCveViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
             .all()
         )
 
-class CveDetailAPIView(generics.RetrieveAPIView):
+class CveDetailAPIView(viewsets.GenericViewSet, mixins.RetrieveModelMixin):
     queryset = Cve.objects.all()
     serializer_class = CveDetailSerializer
     lookup_field = 'cve_id'
