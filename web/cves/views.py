@@ -16,8 +16,6 @@ from organizations.mixins import OrganizationRequiredMixin
 from projects.models import Project
 from users.models import CveTag, UserTag
 
-from rest_framework import generics
-from .serializers import CveDetailSerializer
 
 
 def list_filtered_cves(request):
