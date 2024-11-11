@@ -3,9 +3,25 @@ from cves.models import Cve, Product, Vendor, Weakness
 from cves.templatetags.opencve_extras import cvss_human_score, humanize
 
 class CveListSerializer(serializers.ModelSerializer):
+    cvssV3_1_score = serializers.JSONField(source='cvssV3_1.score')
+    cvssV3_1_human_score = serializers.JSONField(source='cvssV3_1.score', read_only=True)
+    humanized_description = serializers.JSONField(source='description', read_only=True)
     class Meta:
         model = Cve
-        fields = ["created_at", "updated_at", "cve_id", "description"]
+        fields = [
+            "created_at",
+            "updated_at",
+            "cve_id",
+            "description",
+            "humanized_description",
+            "cvssV3_1_score",
+            "cvssV3_1_human_score",
+        ]
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['cvssV3_1_human_score'] = cvss_human_score(data['cvssV3_1_score']).title() if data['cvssV3_1_score'] else None
+        data['humanized_description'] = humanize(data['description'])
+        return data
 
 class CveDetailSerializer(serializers.ModelSerializer):
     nvd_json = serializers.JSONField()
