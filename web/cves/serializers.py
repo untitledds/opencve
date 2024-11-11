@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from cves.models import Cve, Product, Vendor, Weakness
+from cves.utils import cvss_human_score
 
 class CveListSerializer(serializers.ModelSerializer):
     class Meta:
@@ -69,3 +70,25 @@ class ProductListSerializer(serializers.ModelSerializer):
             "updated_at",
             "name",
         ]
+
+class CveExtendedListSerializer(serializers.ModelSerializer):
+    cvssV3_1_score = serializers.SerializerMethodField()
+    cvssV3_1_human_score = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Cve
+        fields = [
+            "created_at",
+            "updated_at",
+            "cve_id",
+            "description",
+            "cvssV3_1_score",
+            "cvssV3_1_human_score",
+        ]
+
+    def get_cvssV3_1_score(self, obj):
+        return obj.cvssV3_1.get('score')
+
+    def get_cvssV3_1_human_score(self, obj):
+        score = obj.cvssV3_1.get('score')
+        return cvss_human_score(score).title() if score else None
