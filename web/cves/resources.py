@@ -122,3 +122,10 @@ class CveDetailAPIView(viewsets.GenericViewSet, mixins.RetrieveModelMixin):
         context = super().get_serializer_context()
         context['request'] = self.request
         return context
+
+class CveExtendedViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = CveExtendedListSerializer
+    permission_classes = (permissions.IsAuthenticated,)  # Добавляем permission_classes
+    queryset = Cve.objects.order_by("-updated_at").all()
+    permission_classes = [permissions.IsAuthenticated]
+    lookup_field = "cve_id"
