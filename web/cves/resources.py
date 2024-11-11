@@ -9,6 +9,7 @@ from cves.serializers import (
     ProductListSerializer,
     VendorListSerializer,
     WeaknessListSerializer,
+    CveExtendedListSerializer,
 )
 from cves.views import list_filtered_cves
 
