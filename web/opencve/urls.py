@@ -12,6 +12,7 @@ from cves.resources import (
     WeaknessCveViewSet,
     WeaknessViewSet,
     CveDetailAPIView,
+    CveExtendedViewSet,
 )
 from organizations.resources import OrganizationViewSet
 from projects.resources import ProjectCveViewSet, ProjectViewSet
@@ -19,6 +20,7 @@ from projects.resources import ProjectCveViewSet, ProjectViewSet
 # API Router
 router = routers.SimpleRouter()
 router.register(r"cve", CveViewSet, basename="cve")
+router.register(r"cve-extended", CveExtendedViewSet, basename="cve-extended")
 
 router.register(r"weaknesses", WeaknessViewSet, basename="weakness")
 weaknesses_router = routers.NestedSimpleRouter(router, r"weaknesses", lookup="weakness")
