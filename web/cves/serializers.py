@@ -74,7 +74,6 @@ class ProductListSerializer(serializers.ModelSerializer):
 class CveExtendedListSerializer(serializers.ModelSerializer):
     cvss_score = serializers.SerializerMethodField()
     cvss_human_score = serializers.SerializerMethodField()
-    humanized_description = serializers.SerializerMethodField()
 
     class Meta:
         model = Cve
@@ -83,7 +82,6 @@ class CveExtendedListSerializer(serializers.ModelSerializer):
             "updated_at",
             "cve_id",
             "description",
-            "humanized_description",
             "cvss_score",
             "cvss_human_score",
         ]
@@ -104,12 +102,9 @@ class CveExtendedListSerializer(serializers.ModelSerializer):
                 return cvss_human_score(cvss['score']).title()
         return None
 
-    def get_humanized_description(self, instance):
-        return humanize(instance.description)
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data['cvss_score'] = self.get_cvss_score(instance)
         data['cvss_human_score'] = self.get_cvss_human_score(instance)
-        data['humanized_description'] = self.get_humanized_description(instance)
         return data
