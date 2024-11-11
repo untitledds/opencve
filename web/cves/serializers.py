@@ -72,8 +72,8 @@ class ProductListSerializer(serializers.ModelSerializer):
         ]
 
 class CveExtendedListSerializer(serializers.ModelSerializer):
-    cvssV3_1_score = serializers.JSONField(source='cvssV3_1.score', default=None)
-    cvssV3_1_human_score = serializers.SerializerMethodField()
+    cvss_score = serializers.SerializerMethodField()
+    cvss_human_score = serializers.SerializerMethodField()
     humanized_description = serializers.SerializerMethodField()
 
     class Meta:
@@ -84,14 +84,26 @@ class CveExtendedListSerializer(serializers.ModelSerializer):
             "cve_id",
             "description",
             "humanized_description",
-            "cvssV3_1_score",
-            "cvssV3_1_human_score",
+            "cvss_score",
+            "cvss_human_score",
         ]
 
-    def get_cvssV3_1_human_score(self, instance):
+    def get_cvss_score(self, instance):
         cvssV3_1 = instance.cvssV3_1
+        cvssV4_0 = instance.cvssV4_0
+        if cvssV3_1 and 'score' in cvssV3_1:
+            return cvssV3_1['score']
+        elif cvssV4_0 and 'score' in cvssV4_0:
+            return cvssV4_0['score']
+        return None
+
+    def get_cvss_human_score(self, instance):
+        cvssV3_1 = instance.cvssV3_1
+        cvssV4_0 = instance.cvssV4_0
         if cvssV3_1 and 'score' in cvssV3_1:
             return cvss_human_score(cvssV3_1['score']).title()
+        elif cvssV4_0 and 'score' in cvssV4_0:
+            return cvss_human_score(cvssV4_0['score']).title()
         return None
 
     def get_humanized_description(self, instance):
@@ -99,6 +111,7 @@ class CveExtendedListSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        data['cvssV3_1_human_score'] = self.get_cvssV3_1_human_score(instance)
+        data['cvss_score'] = self.get_cvss_score(instance)
+        data['cvss_human_score'] = self.get_cvss_human_score(instance)
         data['humanized_description'] = self.get_humanized_description(instance)
         return data
