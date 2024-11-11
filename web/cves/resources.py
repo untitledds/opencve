@@ -177,9 +177,9 @@ class CveExtendedViewSet(viewsets.ReadOnlyModelViewSet):
         sort_by_updated = request.query_params.get('sort_by_updated')
 
         if sort_by_created:
-            queryset = queryset.order_by('created_at')
+            queryset = queryset.order_by('-created_at')
         elif sort_by_updated:
-            queryset = queryset.order_by('updated_at')
+            queryset = queryset.order_by('-updated_at')
         else:
             queryset = queryset.order_by('-updated_at')  # Сортировка по умолчанию по updated_at
 
