@@ -89,21 +89,19 @@ class CveExtendedListSerializer(serializers.ModelSerializer):
         ]
 
     def get_cvss_score(self, instance):
-        cvssV3_1 = instance.cvssV3_1
-        cvssV4_0 = instance.cvssV4_0
-        if cvssV3_1 and 'score' in cvssV3_1:
-            return cvssV3_1['score']
-        elif cvssV4_0 and 'score' in cvssV4_0:
-            return cvssV4_0['score']
+        cvss_fields = ['cvssV3_1', 'cvssV4_0', 'cvssV3_0', 'cvssV2']
+        for field in cvss_fields:
+            cvss = getattr(instance, field, None)
+            if cvss and 'score' in cvss:
+                return cvss['score']
         return None
 
     def get_cvss_human_score(self, instance):
-        cvssV3_1 = instance.cvssV3_1
-        cvssV4_0 = instance.cvssV4_0
-        if cvssV3_1 and 'score' in cvssV3_1:
-            return cvss_human_score(cvssV3_1['score']).title()
-        elif cvssV4_0 and 'score' in cvssV4_0:
-            return cvss_human_score(cvssV4_0['score']).title()
+        cvss_fields = ['cvssV3_1', 'cvssV4_0', 'cvssV3_0', 'cvssV2']
+        for field in cvss_fields:
+            cvss = getattr(instance, field, None)
+            if cvss and 'score' in cvss:
+                return cvss_human_score(cvss['score']).title()
         return None
 
     def get_humanized_description(self, instance):
