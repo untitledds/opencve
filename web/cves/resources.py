@@ -139,6 +139,9 @@ class CveExtendedViewSet(viewsets.ReadOnlyModelViewSet):
         # Фильтруем по дате обновления или создания, если параметры указаны
         queryset = self.filter_by_date(queryset, request)
 
+        # Сортируем по параметрам запроса
+        queryset = self.sort_queryset(queryset, request)
+
         return queryset
 
     def filter_by_date(self, queryset, request):
@@ -160,6 +163,17 @@ class CveExtendedViewSet(viewsets.ReadOnlyModelViewSet):
                     queryset = queryset.filter(updated_at__lte=end_date)
             except ValueError:
                 return Response({"error": "Invalid end_date format"}, status=status.HTTP_400_BAD_REQUEST)
+
+        return queryset
+
+    def sort_queryset(self, queryset, request):
+        sort_by_created = request.query_params.get('sort_by_created')
+        sort_by_updated = request.query_params.get('sort_by_updated')
+
+        if sort_by_created:
+            queryset = queryset.order_by('created_at')
+        elif sort_by_updated:
+            queryset = queryset.order_by('updated_at')
 
         return queryset
 
