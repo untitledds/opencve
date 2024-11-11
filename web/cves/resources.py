@@ -1,6 +1,7 @@
 from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_date
-from rest_framework import mixins, permissions, viewsets
+from rest_framework import mixins, permissions, viewsets, status
+from rest_framework.response import Response
 
 from cves.constants import PRODUCT_SEPARATOR
 from cves.models import Cve, Product, Vendor, Weakness
@@ -135,11 +136,15 @@ class CveExtendedViewSet(viewsets.ReadOnlyModelViewSet):
         queryset = super().get_queryset()
         request = self.request
 
-        # Получаем параметры запроса для дат начала и конца
+        # Фильтруем по дате обновления или создания, если параметры указаны
+        queryset = self.filter_by_date(queryset, request)
+
+        return queryset
+
+    def filter_by_date(self, queryset, request):
         start_date = request.query_params.get('start_date')
         end_date = request.query_params.get('end_date')
 
-        # Фильтруем по дате обновления или создания, если параметры указаны
         if start_date:
             try:
                 start_date = parse_date(start_date)
