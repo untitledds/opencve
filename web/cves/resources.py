@@ -1,4 +1,5 @@
 from django.shortcuts import get_object_or_404
+from django.utils.dateparse import parse_date
 from rest_framework import mixins, permissions, viewsets
 
 from cves.constants import PRODUCT_SEPARATOR
@@ -129,3 +130,35 @@ class CveExtendedViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Cve.objects.order_by("-updated_at").all()
     permission_classes = [permissions.IsAuthenticated]
     lookup_field = "cve_id"
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        request = self.request
+
+        # Получаем параметры запроса для дат начала и конца
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+
+        # Фильтруем по дате обновления или создания, если параметры указаны
+        if start_date:
+            try:
+                start_date = parse_date(start_date)
+                if start_date:
+                    queryset = queryset.filter(updated_at__gte=start_date)
+            except ValueError:
+                return Response({"error": "Invalid start_date format"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if end_date:
+            try:
+                end_date = parse_date(end_date)
+                if end_date:
+                    queryset = queryset.filter(updated_at__lte=end_date)
+            except ValueError:
+                return Response({"error": "Invalid end_date format"}, status=status.HTTP_400_BAD_REQUEST)
+
+        return queryset
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = get_object_or_404(Cve, cve_id=kwargs['cve_id'])
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
