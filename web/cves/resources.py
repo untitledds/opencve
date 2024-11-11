@@ -145,6 +145,9 @@ class CveExtendedViewSet(viewsets.ReadOnlyModelViewSet):
         return queryset
 
     def filter_by_date(self, queryset, request):
+        """
+        Фильтрует queryset по дате обновления или создания, если параметры указаны.
+        """
         start_date = request.query_params.get('start_date')
         end_date = request.query_params.get('end_date')
 
@@ -167,6 +170,9 @@ class CveExtendedViewSet(viewsets.ReadOnlyModelViewSet):
         return queryset
 
     def sort_queryset(self, queryset, request):
+        """
+        Сортирует queryset по параметрам запроса.
+        """
         sort_by_created = request.query_params.get('sort_by_created')
         sort_by_updated = request.query_params.get('sort_by_updated')
 
@@ -174,6 +180,8 @@ class CveExtendedViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.order_by('created_at')
         elif sort_by_updated:
             queryset = queryset.order_by('updated_at')
+        else:
+            queryset = queryset.order_by('-updated_at')  # Сортировка по умолчанию по updated_at
 
         return queryset
 
