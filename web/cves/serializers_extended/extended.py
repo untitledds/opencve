@@ -4,6 +4,10 @@ from cves.templatetags.opencve_extras import cvss_human_score
 from cves.utils import humanize
 
 
+# Константы для CVSS-полей
+CVSS_FIELDS = ["cvssV3_1", "cvssV4_0", "cvssV3_0", "cvssV2"]
+
+
 class CveExtendedListSerializer(serializers.ModelSerializer):
     cvss_score = serializers.SerializerMethodField()
     cvss_human_score = serializers.SerializerMethodField()
@@ -21,25 +25,29 @@ class CveExtendedListSerializer(serializers.ModelSerializer):
             "humanized_title",
         ]
 
+    def _get_cvss_data(self, instance):
+        """
+        Возвращает данные CVSS из первой доступной версии.
+        """
+        for field in CVSS_FIELDS:
+            cvss = instance.metrics.get(field, {}).get("data", {})
+            if cvss and "score" in cvss:
+                return cvss
+        return None
+
     def get_cvss_score(self, instance):
         """
         Возвращает CVSS score из первой доступной версии CVSS.
         """
-        for field in ["cvssV3_1", "cvssV4_0", "cvssV3_0", "cvssV2"]:
-            cvss = getattr(instance, field, None)
-            if cvss and "score" in cvss:
-                return cvss["score"]
-        return None
+        cvss = self._get_cvss_data(instance)
+        return cvss["score"] if cvss else None
 
     def get_cvss_human_score(self, instance):
         """
         Возвращает человеко-читаемый уровень CVSS (например, "High", "Critical").
         """
-        for field in ["cvssV3_1", "cvssV4_0", "cvssV3_0", "cvssV2"]:
-            cvss = getattr(instance, field, None)
-            if cvss and "score" in cvss:
-                return cvss_human_score(cvss["score"]).title()
-        return None
+        cvss = self._get_cvss_data(instance)
+        return cvss_human_score(cvss["score"]).title() if cvss else None
 
     def get_humanized_title(self, instance):
         """
@@ -50,15 +58,15 @@ class CveExtendedListSerializer(serializers.ModelSerializer):
 
 class CveExtendedDetailSerializer(serializers.ModelSerializer):
     # JSON-поля
-    nvd_json = serializers.JSONField(default=dict)
-    mitre_json = serializers.JSONField(default=dict)
-    redhat_json = serializers.JSONField(default=dict)
-    vulnrichment_json = serializers.JSONField(default=dict)
-    kev_data = serializers.JSONField(source="kev", default=dict)
-    ssvc_data = serializers.JSONField(source="ssvc", default=dict)
-    cvssV2_0_data = serializers.JSONField(source="cvssV2_0", default=dict)
-    cvssV3_1_data = serializers.JSONField(source="cvssV3_1", default=dict)
-    references = serializers.JSONField(default=list)
+    nvd_json = serializers.SerializerMethodField()
+    mitre_json = serializers.SerializerMethodField()
+    redhat_json = serializers.SerializerMethodField()
+    vulnrichment_json = serializers.SerializerMethodField()
+    kev_data = serializers.SerializerMethodField()
+    ssvc_data = serializers.SerializerMethodField()
+    cvssV2_0_data = serializers.SerializerMethodField()
+    cvssV3_1_data = serializers.SerializerMethodField()
+    references = serializers.SerializerMethodField()
 
     # Методы для получения дополнительных данных
     vendors = serializers.SerializerMethodField()
@@ -114,15 +122,56 @@ class CveExtendedDetailSerializer(serializers.ModelSerializer):
         """
         return self.context.get("tags", [])
 
-    def to_representation(self, instance):
+    def get_kev_data(self, instance):
         """
-        Переопределяет метод to_representation для обработки отсутствующих данных.
+        Возвращает данные KEV.
         """
-        data = super().to_representation(instance)
-        # Убедимся, что все JSON-поля имеют значение по умолчанию
-        for field in data:
-            if data[field] is None:
-                data[field] = (
-                    {} if field.endswith("_json") or field.endswith("_data") else []
-                )
-        return data
+        return instance.metrics.get("kev", {})
+
+    def get_ssvc_data(self, instance):
+        """
+        Возвращает данные SSVC.
+        """
+        return instance.metrics.get("ssvc", {})
+
+    def get_cvssV2_0_data(self, instance):
+        """
+        Возвращает данные CVSS v2.0.
+        """
+        return instance.metrics.get("cvssV2_0", {}).get("data", {})
+
+    def get_cvssV3_1_data(self, instance):
+        """
+        Возвращает данные CVSS v3.1.
+        """
+        return instance.metrics.get("cvssV3_1", {}).get("data", {})
+
+    def get_nvd_json(self, instance):
+        """
+        Возвращает данные NVD.
+        """
+        return self.context.get("nvd_json", {})
+
+    def get_mitre_json(self, instance):
+        """
+        Возвращает данные MITRE.
+        """
+        return self.context.get("mitre_json", {})
+
+    def get_redhat_json(self, instance):
+        """
+        Возвращает данные Red Hat.
+        """
+        return self.context.get("redhat_json", {})
+
+    def get_vulnrichment_json(self, instance):
+        """
+        Возвращает данные Vulnrichment.
+        """
+        return self.context.get("vulnrichment_json", {})
+
+    def get_references(self, instance):
+        """
+        Возвращает список ссылок.
+        """
+        return instance.kb_json.get("opencve", {}).get("references", [])

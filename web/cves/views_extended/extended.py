@@ -22,6 +22,7 @@ class CveFilter(filters.BaseFilterBackend):
     """
 
     def filter_queryset(self, request, queryset, view):
+        # Фильтрация по дате
         start_date = request.query_params.get("start_date")
         end_date = request.query_params.get("end_date")
 
@@ -29,6 +30,40 @@ class CveFilter(filters.BaseFilterBackend):
             queryset = queryset.filter(updated_at__gte=start_date)
         if end_date:
             queryset = queryset.filter(updated_at__lte=end_date)
+        # Фильтрация по вендору
+        vendor = request.query_params.get("vendor")
+        if vendor:
+            queryset = queryset.filter(vendors__contains=vendor)
+
+        # Фильтрация по продукту
+        product = request.query_params.get("product")
+        if product:
+            queryset = queryset.filter(vendors__contains=product)
+        # Фильтрация по CVSS
+        cvss = request.query_params.get("cvss")
+        if cvss:
+            if cvss == "empty":
+                queryset = queryset.filter(metrics__cvssV3_1__data__score__isnull=True)
+            elif cvss == "low":
+                queryset = queryset.filter(
+                    metrics__cvssV3_1__data__score__gte=0,
+                    metrics__cvssV3_1__data__score__lte=3.9,
+                )
+            elif cvss == "medium":
+                queryset = queryset.filter(
+                    metrics__cvssV3_1__data__score__gte=4.0,
+                    metrics__cvssV3_1__data__score__lte=6.9,
+                )
+            elif cvss == "high":
+                queryset = queryset.filter(
+                    metrics__cvssV3_1__data__score__gte=7.0,
+                    metrics__cvssV3_1__data__score__lte=8.9,
+                )
+            elif cvss == "critical":
+                queryset = queryset.filter(
+                    metrics__cvssV3_1__data__score__gte=9.0,
+                    metrics__cvssV3_1__data__score__lte=10.0,
+                )
 
         return queryset
 
