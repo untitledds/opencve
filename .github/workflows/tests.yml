@@ -41,13 +41,6 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           architecture: x64
-      - name: Cache pip packages
-        uses: actions/cache@v3
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
       - name: Install requirements
         run: |
           cd web
@@ -102,18 +95,16 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           architecture: x64
-      - name: Cache pip packages
-        uses: actions/cache@v3
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
       - name: Init web database
         run: |
           cd web
           cp opencve/conf/settings.py.example opencve/conf/settings.py
+          python -m venv venv_web
+          source venv_web/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
           python manage.py migrate
+          deactivate
         env:
           DJANGO_SETTINGS_MODULE: opencve.conf.settings
           OPENCVE_DATABASE_URL: postgresql://opencve:opencve@localhost:5432/opencve

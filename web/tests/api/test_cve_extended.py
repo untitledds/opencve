@@ -116,12 +116,16 @@ class TestCveDetail:
         Тест для проверки получения деталей CVE.
         """
         client = auth_client()
-        response = client.get(reverse("extended-cve-detail", kwargs={"cve_id": "CVE-2024-31331"}))
+        response = client.get(
+            reverse("extended-cve-detail", kwargs={"cve_id": "CVE-2024-31331"})
+        )
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
         # Создаем тестовый CVE
         create_cve("CVE-2024-31331")
-        response = client.get(reverse("extended-cve-detail", kwargs={"cve_id": "CVE-2024-31331"}))
+        response = client.get(
+            reverse("extended-cve-detail", kwargs={"cve_id": "CVE-2024-31331"})
+        )
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
             "cve_id": "CVE-2024-31331",
