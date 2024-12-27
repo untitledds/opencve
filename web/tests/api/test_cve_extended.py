@@ -4,7 +4,7 @@ from rest_framework.test import APITestCase
 from rest_framework import status
 from django.http.request import QueryDict
 from cves.models import Cve
-from cves.serializers.extended import (
+from cves.serializers_extended.extended import (
     CveExtendedListSerializer,
     CveExtendedDetailSerializer,
 )

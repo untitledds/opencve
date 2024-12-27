@@ -2,9 +2,9 @@ from rest_framework import viewsets, status, filters
 from rest_framework.response import Response
 from django.http import Http404
 from django_filters.rest_framework import DjangoFilterBackend, DateFilter
-from cves.views import CveDetailView
+from cves.views_extended import CveDetailView
 from cves.models import Cve, CveTag
-from cves.serializers.extended import (
+from cves.serializers_extended.extended import (
     CveExtendedListSerializer,
     CveExtendedDetailSerializer,
 )

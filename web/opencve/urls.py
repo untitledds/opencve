@@ -14,7 +14,9 @@ from cves.resources import (
 from organizations.resources import OrganizationViewSet
 from projects.resources import ProjectCveViewSet, ProjectViewSet
 from users.views import CustomLoginView, CustomSignupView
-from cves.views.extended import CveExtendedViewSet  # Импортируем CveExtendedViewSet
+from cves.views_extended.extended import (
+    CveExtendedViewSet,
+)  # Импортируем CveExtendedViewSet
 
 # API Router
 router = routers.SimpleRouter(trailing_slash=False)
