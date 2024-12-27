@@ -9,6 +9,7 @@ from users.models import User, UserTag, CveTag
 from cves.utils import list_filtered_cves
 import json
 
+
 class CveExtendedViewSetTests(APITestCase):
     def setUp(self):
         # Создаем тестовые данные
@@ -17,21 +18,19 @@ class CveExtendedViewSetTests(APITestCase):
             description="Test CVE 1",
             title="Test CVE 1 Title",
             cvssV3_1={"score": 9.8},
-            cvssV2={"score": 7.5}
+            cvssV2={"score": 7.5},
         )
         self.cve2 = Cve.objects.create(
             cve_id="CVE-2023-5678",
             description="Test CVE 2",
             title="Test CVE 2 Title",
             cvssV3_1={"score": 8.5},
-            cvssV2={"score": 6.5}
+            cvssV2={"score": 6.5},
         )
 
         # Создаем тестового пользователя
         self.user = User.objects.create_user(
-            username="testuser",
-            password="testpassword",
-            email="test@example.com"
+            username="testuser", password="testpassword", email="test@example.com"
         )
 
     def test_authentication_required(self):
@@ -75,7 +74,9 @@ class CveExtendedViewSetTests(APITestCase):
         self.client.force_authenticate(user=self.user)
 
         # Добавляем фильтрацию по дате
-        url = reverse("extended-cve-list") + "?start_date=2023-01-01&end_date=2023-12-31"
+        url = (
+            reverse("extended-cve-list") + "?start_date=2023-01-01&end_date=2023-12-31"
+        )
         response = self.client.get(url)
 
         # Проверяем статус ответа
@@ -175,7 +176,9 @@ class CveExtendedViewSetTests(APITestCase):
         Тест для проверки каскадного удаления данных пользователя.
         """
         # Создаем теги и CVE, связанные с пользователем
-        user_tag = UserTag.objects.create(name="Test Tag", color="#000000", user=self.user)
+        user_tag = UserTag.objects.create(
+            name="Test Tag", color="#000000", user=self.user
+        )
         cve = Cve.objects.create(cve_id="CVE-2024-1234")
         CveTag.objects.create(user=self.user, cve=cve, tags=[user_tag.name])
 
@@ -221,7 +224,9 @@ class CveExtendedViewSetTests(APITestCase):
         Тест для проверки фильтрации CVE по тегам.
         """
         # Создаем тег и связываем его с CVE
-        user_tag = UserTag.objects.create(name="Test Tag", color="#000000", user=self.user)
+        user_tag = UserTag.objects.create(
+            name="Test Tag", color="#000000", user=self.user
+        )
         CveTag.objects.create(user=self.user, cve=self.cve1, tags=[user_tag.name])
 
         # Выполняем фильтрацию по тегу

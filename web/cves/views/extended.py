@@ -11,24 +11,29 @@ import json
 # Настройка логгера
 logger = logging.getLogger(__name__)
 
+
 class CveExtendedListViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Cve.objects.all()
     serializer_class = CveExtendedListSerializer
+
 
 class CveExtendedDetailViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Cve.objects.all()
     serializer_class = CveDetailSerializer
 
+
 class CveFilter(filters.FilterSet):
     """
     Фильтр для CVE по дате.
     """
+
     start_date = DateFilter(field_name="updated_at", lookup_expr="gte")
     end_date = DateFilter(field_name="updated_at", lookup_expr="lte")
 
     class Meta:
         model = Cve
         fields = ["start_date", "end_date"]
+
 
 class CveExtendedViewSet(viewsets.ReadOnlyModelViewSet):
     """
@@ -59,21 +64,30 @@ class CveExtendedViewSet(viewsets.ReadOnlyModelViewSet):
             view.object = cve
             view_context = view.get_context_data()
             # Добавляем данные из контекста CveDetailView
-            context.update({
-                "vendors": view_context.get("vendors", {}),
-                "weaknesses": view_context.get("weaknesses", []),
-                "nvd_json": json.loads(view_context.get("nvd_json", "{}")),
-                "mitre_json": json.loads(view_context.get("mitre_json", "{}")),
-                "redhat_json": json.loads(view_context.get("redhat_json", "{}")),
-                "vulnrichment_json": json.loads(view_context.get("vulnrichment_json", "{}")),
-            })
-        
+            context.update(
+                {
+                    "vendors": view_context.get("vendors", {}),
+                    "weaknesses": view_context.get("weaknesses", []),
+                    "nvd_json": json.loads(view_context.get("nvd_json", "{}")),
+                    "mitre_json": json.loads(view_context.get("mitre_json", "{}")),
+                    "redhat_json": json.loads(view_context.get("redhat_json", "{}")),
+                    "vulnrichment_json": json.loads(
+                        view_context.get("vulnrichment_json", "{}")
+                    ),
+                }
+            )
+
         if self.request.user.is_authenticated:
-            user_tags = {t.name: {"color": t.color, "description": t.description} for t in UserTag.objects.filter(user=self.request.user).all()}
+            user_tags = {
+                t.name: {"color": t.color, "description": t.description}
+                for t in UserTag.objects.filter(user=self.request.user).all()
+            }
             context["user_tags"] = user_tags
             if self.action == "retrieve":
                 cve = self.get_object()
-                cve_tags = CveTag.objects.filter(user=self.request.user, cve=cve).first()
+                cve_tags = CveTag.objects.filter(
+                    user=self.request.user, cve=cve
+                ).first()
                 if cve_tags:
                     context["tags"] = [user_tags[tag] for tag in cve_tags.tags]
         return context
@@ -90,4 +104,7 @@ class CveExtendedViewSet(viewsets.ReadOnlyModelViewSet):
             raise Http404("CVE not found")
         except Exception as e:
             logger.error(f"Error retrieving CVE: {e}")
-            return Response({"error": "Internal server error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {"error": "Internal server error"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
