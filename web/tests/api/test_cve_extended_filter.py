@@ -4,7 +4,6 @@ from django.urls import reverse
 from rest_framework import status
 from unittest.mock import patch, PropertyMock
 from cves.models import Cve
-from cves.views_extended.extended import CveFilter
 
 
 # Тесты для фильтрации CVE

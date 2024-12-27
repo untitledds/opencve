@@ -76,6 +76,7 @@ class CveExtendedViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Cve.objects.all()
     serializer_class = CveExtendedListSerializer
     filter_backends = [CveFilter, filters.OrderingFilter]
+    lookup_field = "cve_id"
     ordering_fields = ["created_at", "updated_at"]
     ordering = ["-updated_at"]
 
