@@ -1,4 +1,6 @@
+from datetime import datetime
 from rest_framework import viewsets, status, filters
+from itertools import chain
 from rest_framework.response import Response
 from django.http import Http404
 from cves.views import CveDetailView
@@ -7,7 +9,7 @@ from cves.serializers_extended.extended import (
     CveExtendedListSerializer,
     CveExtendedDetailSerializer,
 )
-from cves.utils import list_to_dict_vendors, list_weaknesses
+from cves.utils import list_to_dict_vendors, flatten_vendors, list_filtered_cves
 from users.models import CveTag, UserTag  # Импорт моделей для работы с тегами
 import logging
 import json
@@ -18,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 class CveFilter(filters.BaseFilterBackend):
     """
-    Фильтр для CVE по дате.
+    Фильтр для CVE по дате, вендору, продукту и CVSS.
     """
 
     def filter_queryset(self, request, queryset, view):
@@ -26,44 +28,53 @@ class CveFilter(filters.BaseFilterBackend):
         start_date = request.query_params.get("start_date")
         end_date = request.query_params.get("end_date")
 
-        if start_date:
-            queryset = queryset.filter(updated_at__gte=start_date)
-        if end_date:
-            queryset = queryset.filter(updated_at__lte=end_date)
-        # Фильтрация по вендору (без учета регистра)
+        try:
+            if start_date:
+                start_date = datetime.strptime(start_date, "%Y-%m-%d")
+                queryset = queryset.filter(updated_at__gte=start_date)
+            if end_date:
+                end_date = datetime.strptime(end_date, "%Y-%m-%d")
+                queryset = queryset.filter(updated_at__lte=end_date)
+        except ValueError as e:
+            logger.error(f"Invalid date format: {e}")
+
+        # Фильтрация по вендору
         vendor = request.query_params.get("vendor")
         if vendor:
-            queryset = queryset.filter(vendors__icontains=f"{vendor.lower()}")
+            vendors_list = list(
+                chain.from_iterable(queryset.values_list("vendors", flat=True))
+            )
+            vendors_dict = list_to_dict_vendors(vendors_list)
+            filtered_vendors = {
+                k: v for k, v in vendors_dict.items() if vendor.lower() in k.lower()
+            }
+            queryset = queryset.filter(vendors__in=flatten_vendors(filtered_vendors))
 
-        # Фильтрация по продукту (без учета регистра)
+        # Фильтрация по продукту
         product = request.query_params.get("product")
         if product:
-            queryset = queryset.filter(vendors__icontains=f"{product.lower()}")
+            vendors_list = list(
+                chain.from_iterable(queryset.values_list("vendors", flat=True))
+            )
+            vendors_dict = list_to_dict_vendors(vendors_list)
+            filtered_products = {
+                k: v
+                for k, v in vendors_dict.items()
+                if product.lower() in [p.lower() for p in v]
+            }
+            queryset = queryset.filter(vendors__in=flatten_vendors(filtered_products))
+
         # Фильтрация по CVSS
         cvss = request.query_params.get("cvss")
         if cvss:
-            if cvss == "empty":
-                queryset = queryset.filter(metrics__cvssV3_1__data__score__isnull=True)
-            elif cvss == "low":
-                queryset = queryset.filter(
-                    metrics__cvssV3_1__data__score__gte=0,
-                    metrics__cvssV3_1__data__score__lte=3.9,
-                )
-            elif cvss == "medium":
-                queryset = queryset.filter(
-                    metrics__cvssV3_1__data__score__gte=4.0,
-                    metrics__cvssV3_1__data__score__lte=6.9,
-                )
-            elif cvss == "high":
-                queryset = queryset.filter(
-                    metrics__cvssV3_1__data__score__gte=7.0,
-                    metrics__cvssV3_1__data__score__lte=8.9,
-                )
-            elif cvss == "critical":
-                queryset = queryset.filter(
-                    metrics__cvssV3_1__data__score__gte=9.0,
-                    metrics__cvssV3_1__data__score__lte=10.0,
-                )
+            queryset = list_filtered_cves(
+                {"cvss": cvss}, request.user, queryset=queryset
+            )
+
+        # Фильтрация по тегу
+        tag = request.query_params.get("tag")
+        if tag and request.user.is_authenticated:
+            queryset = list_filtered_cves({"tag": tag}, request.user, queryset=queryset)
 
         return queryset
 
