@@ -4,7 +4,10 @@ from rest_framework.test import APITestCase
 from rest_framework import status
 from django.http.request import QueryDict
 from cves.models import Cve
-from cves.serializers.extended import CveExtendedListSerializer, CveDetailSerializer
+from cves.serializers.extended import (
+    CveExtendedListSerializer,
+    CveExtendedDetailSerializer,
+)
 from users.models import User, UserTag, CveTag
 from cves.utils import list_filtered_cves
 import json
@@ -136,7 +139,7 @@ class CveExtendedViewSetTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Проверяем, что данные соответствуют сериализатору
-        serializer = CveDetailSerializer(self.cve1)
+        serializer = CveExtendedDetailSerializer(self.cve1)
         self.assertEqual(response.data, serializer.data)
 
     def test_cve_detail_with_context(self):

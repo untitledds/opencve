@@ -4,7 +4,10 @@ from django.http import Http404
 from django_filters.rest_framework import DjangoFilterBackend, DateFilter
 from cves.views import CveDetailView
 from cves.models import Cve, CveTag
-from cves.serializers.extended import CveExtendedListSerializer, CveExtendedDetailSerializer
+from cves.serializers.extended import (
+    CveExtendedListSerializer,
+    CveExtendedDetailSerializer,
+)
 import logging
 import json
 
