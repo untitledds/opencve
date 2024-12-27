@@ -1,13 +1,14 @@
 from rest_framework import viewsets, status, filters
 from rest_framework.response import Response
 from django.http import Http404
-from cves.views import CveDetailView
-from cves.models import Cve, CveTag
+from cves.views_extended import CveDetailView
+from cves.models import Cve
 from cves.serializers_extended.extended import (
     CveExtendedListSerializer,
     CveExtendedDetailSerializer,
 )
 from cves.utils import list_to_dict_vendors, list_weaknesses
+from users.models import CveTag, UserTag  # Импорт моделей для работы с тегами
 import logging
 import json
 
@@ -38,7 +39,7 @@ class CveExtendedViewSet(viewsets.ReadOnlyModelViewSet):
     """
 
     serializer_class = CveExtendedListSerializer
-    filter_backends = [CveFilter, filters.OrderingFilter]  # Используем CveFilter
+    filter_backends = [CveFilter, filters.OrderingFilter]
     ordering_fields = ["created_at", "updated_at"]
     ordering = ["-updated_at"]
 
@@ -74,6 +75,7 @@ class CveExtendedViewSet(viewsets.ReadOnlyModelViewSet):
             )
 
         if self.request.user.is_authenticated:
+            # Логика работы с тегами, аналогичная CveDetailView
             user_tags = {
                 t.name: {"color": t.color, "description": t.description}
                 for t in UserTag.objects.filter(user=self.request.user).all()
