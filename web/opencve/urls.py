@@ -69,4 +69,7 @@ urlpatterns = [
     path("api/", include(vendors_router.urls)),
     path("api/", include(products_cves_router.urls)),
     path("api/", include(weaknesses_router.urls)),
+
+    # Маршруты для редактирования
+    path("api/edit/", include("opencve.edit_urls")),
 ]
