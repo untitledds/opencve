@@ -48,7 +48,7 @@ class CveExtendedListSerializer(serializers.ModelSerializer):
         return humanize(instance.title)
 
 
-class CveDetailSerializer(serializers.ModelSerializer):
+class CveExtendedDetailSerializer(serializers.ModelSerializer):
     # JSON-поля
     nvd_json = serializers.JSONField(default=dict)
     mitre_json = serializers.JSONField(default=dict)

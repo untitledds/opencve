@@ -4,7 +4,7 @@ from django.http import Http404
 from django_filters.rest_framework import DjangoFilterBackend, DateFilter
 from cves.views import CveDetailView
 from cves.models import Cve, CveTag
-from cves.serializers.extended import CveExtendedListSerializer, CveDetailSerializer
+from cves.serializers.extended import CveExtendedListSerializer, CveExtendedDetailSerializer
 import logging
 import json
 
@@ -19,7 +19,7 @@ class CveExtendedListViewSet(viewsets.ReadOnlyModelViewSet):
 
 class CveExtendedDetailViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Cve.objects.all()
-    serializer_class = CveDetailSerializer
+    serializer_class = CveExtendedDetailSerializer
 
 
 class CveFilter(filters.FilterSet):
@@ -47,9 +47,9 @@ class CveExtendedViewSet(viewsets.ReadOnlyModelViewSet):
     ordering = ["-updated_at"]
 
     def get_serializer_class(self):
-        # Используем CveExtendedListSerializer для списка и CveDetailSerializer для деталей
+        # Используем CveExtendedListSerializer для списка и CveExtendedDetailSerializer для деталей
         if self.action == "retrieve":
-            return CveDetailSerializer
+            return CveExtendedDetailSerializer
         return CveExtendedListSerializer
 
     def get_serializer_context(self):
