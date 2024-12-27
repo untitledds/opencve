@@ -3,7 +3,7 @@ FROM python:3.11-slim-bookworm AS base
 # Builder
 FROM base AS builder
 
-ARG OPENCVE_REPOSITORY="https://github.com/opencve/opencve.git"
+ARG OPENCVE_REPOSITORY="https://github.com/untitledds/opencve.git"
 ARG OPENCVE_VERSION="master"
 
 RUN apt-get update && apt-get upgrade -y && apt-get install -y \
