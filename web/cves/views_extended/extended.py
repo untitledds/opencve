@@ -30,15 +30,15 @@ class CveFilter(filters.BaseFilterBackend):
             queryset = queryset.filter(updated_at__gte=start_date)
         if end_date:
             queryset = queryset.filter(updated_at__lte=end_date)
-        # Фильтрация по вендору
+        # Фильтрация по вендору (без учета регистра)
         vendor = request.query_params.get("vendor")
         if vendor:
-            queryset = queryset.filter(vendors__contains=vendor)
+            queryset = queryset.filter(vendors__icontains=f"{vendor.lower()}")
 
-        # Фильтрация по продукту
+        # Фильтрация по продукту (без учета регистра)
         product = request.query_params.get("product")
         if product:
-            queryset = queryset.filter(vendors__contains=product)
+            queryset = queryset.filter(vendors__icontains=f"{product.lower()}")
         # Фильтрация по CVSS
         cvss = request.query_params.get("cvss")
         if cvss:
