@@ -73,6 +73,7 @@ class CveExtendedViewSet(viewsets.ReadOnlyModelViewSet):
     ViewSet для возврата данных CveDetailView в формате JSON.
     """
 
+    queryset = Cve.objects.all()
     serializer_class = CveExtendedListSerializer
     filter_backends = [CveFilter, filters.OrderingFilter]
     ordering_fields = ["created_at", "updated_at"]
@@ -91,33 +92,26 @@ class CveExtendedViewSet(viewsets.ReadOnlyModelViewSet):
         context = super().get_serializer_context()
         if self.action == "retrieve":
             cve = self.get_object()
-            # Используем CveDetailView для получения контекста
-            view = CveDetailView()
-            view.object = cve
-            view_context = view.get_context_data()
-            # Добавляем данные из контекста CveDetailView
+            # Используем свойства модели для получения данных
             context.update(
                 {
-                    "vendors": list_to_dict_vendors(view_context.get("vendors", {})),
-                    "weaknesses": list_weaknesses(view_context.get("weaknesses", [])),
-                    "nvd_json": json.loads(view_context.get("nvd_json", "{}")),
-                    "mitre_json": json.loads(view_context.get("mitre_json", "{}")),
-                    "redhat_json": json.loads(view_context.get("redhat_json", "{}")),
-                    "vulnrichment_json": json.loads(
-                        view_context.get("vulnrichment_json", "{}")
-                    ),
+                    "vendors": cve.vendors,  # Используем поле vendors
+                    "weaknesses": cve.weaknesses,  # Используем поле weaknesses
+                    "nvd_json": cve.nvd_json,  # Используем свойство nvd_json
+                    "mitre_json": cve.mitre_json,  # Используем свойство mitre_json
+                    "redhat_json": cve.redhat_json,  # Используем свойство redhat_json
+                    # Используем свойство vulnrichment_json
+                    "vulnrichment_json": cve.vulnrichment_json,
                 }
             )
 
-        if self.request.user.is_authenticated:
-            # Логика работы с тегами, аналогичная CveDetailView
-            user_tags = {
-                t.name: {"color": t.color, "description": t.description}
-                for t in UserTag.objects.filter(user=self.request.user).all()
-            }
-            context["user_tags"] = user_tags
-            if self.action == "retrieve":
-                cve = self.get_object()
+            if self.request.user.is_authenticated:
+                # Логика работы с тегами, аналогичная CveDetailView
+                user_tags = {
+                    t.name: {"color": t.color, "description": t.description}
+                    for t in UserTag.objects.filter(user=self.request.user).all()
+                }
+                context["user_tags"] = user_tags
                 cve_tags = CveTag.objects.filter(
                     user=self.request.user, cve=cve
                 ).first()
@@ -130,13 +124,10 @@ class CveExtendedViewSet(viewsets.ReadOnlyModelViewSet):
         Переопределяет метод retrieve для обработки ошибок и логирования.
         """
         try:
-            cve_id = kwargs.get("cve_id")
-            cve = Cve.objects.get(cve_id=cve_id)
             return super().retrieve(request, *args, **kwargs)
-        except Cve.DoesNotExist:
-            raise Http404("CVE not found")
         except Exception as e:
-            logger.error(f"Error retrieving CVE: {e}")
+            cve_id = kwargs.get("cve_id")
+            logger.error(f"Error retrieving CVE {cve_id}: {e}")
             return Response(
                 {"error": "Internal server error"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,

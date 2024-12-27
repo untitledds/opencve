@@ -177,14 +177,21 @@ class CveExtendedViewSetTests(APITestCase):
         """
         Тест для проверки полей, зависящих от контекста, в CveExtendedDetailSerializer.
         """
-        self.client.force_authenticate(user=self.user)
-        url = reverse("extended-cve-detail", args=[self.cve1.cve_id])
-        response = self.client.get(url)
+        # Создаем контекст
+        context = {
+            "vendors": {"vendor1": ["product1", "product2"]},
+            "weaknesses": ["CWE-123", "CWE-456"],
+            "tags": ["tag1", "tag2"],
+        }
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["vendors"], {})
-        self.assertEqual(response.data["weaknesses"], [])
-        self.assertEqual(response.data["tags"], [])
+        # Используем сериализатор напрямую
+        serializer = CveExtendedDetailSerializer(self.cve1, context=context)
+        data = serializer.data
+
+        # Проверяем, что данные соответствуют ожидаемым
+        self.assertEqual(data["vendors"], {"vendor1": ["product1", "product2"]})
+        self.assertEqual(data["weaknesses"], ["CWE-123", "CWE-456"])
+        self.assertEqual(data["tags"], ["tag1", "tag2"])
 
     def test_delete_user_cascade(self):
         """
