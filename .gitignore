@@ -36,3 +36,5 @@ web/.pytest_cache/
 web/emails/
 docker/conf/opencve.conf.template
 docker/conf/default.conf.template
+.editorconfig
+.prettierrc
