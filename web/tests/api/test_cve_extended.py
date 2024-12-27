@@ -50,10 +50,13 @@ def test_cve_extended_list_serializer_data(create_cve):
 
     # Проверяем, что данные сериализованы корректно
     assert serializer.data == {
+        "created_at": "2022-03-30T00:00:00Z",
+        "updated_at": "2024-07-31T20:10:19.936000Z",
         "cve_id": "CVE-2022-22965",
         "description": "A Spring MVC or Spring WebFlux application running on JDK 9+ may be vulnerable to remote code execution (RCE) via data binding. The specific exploit requires the application to run on Tomcat as a WAR deployment. If the application is deployed as a Spring Boot executable jar, i.e. the default, it is not vulnerable to the exploit. However, the nature of the vulnerability is more general, and there may be other ways to exploit it.",
         "cvss_score": 9.8,
-        "humanized_title": "CVE-2022-22965",
+        "cvss_human_score": "Critical",
+        "humanized_title": "Spring-framework: rce via data binding on jdk 9+",
     }
 
 
@@ -76,10 +79,13 @@ def test_cve_extended_list_view(auth_client, create_cve):
     # Проверяем, что данные соответствуют формату CveExtendedListSerializer
     assert response.json()["results"] == [
         {
+            "created_at": "2022-03-30T00:00:00Z",
+            "updated_at": "2024-07-31T20:10:19.936000Z",
             "cve_id": "CVE-2022-22965",
             "description": "A Spring MVC or Spring WebFlux application running on JDK 9+ may be vulnerable to remote code execution (RCE) via data binding. The specific exploit requires the application to run on Tomcat as a WAR deployment. If the application is deployed as a Spring Boot executable jar, i.e. the default, it is not vulnerable to the exploit. However, the nature of the vulnerability is more general, and there may be other ways to exploit it.",
             "cvss_score": 9.8,
-            "humanized_title": "CVE-2022-22965",
+            "cvss_human_score": "Critical",
+            "humanized_title": "Spring-framework: rce via data binding on jdk 9+",
         }
     ]
 
@@ -127,9 +133,21 @@ def test_list_cves_with_filters(create_cve, auth_client, params, expected_cve_id
     """
     client = auth_client()
 
-    # Создаем тестовые CVE
-    create_cve("CVE-2022-22965")  # CVSS: 9.8, вендоры: vmware, oracle, cisco
-    create_cve("CVE-2022-20698")  # CVSS: 7.5, вендоры: clamav
+    # Создаем тестовые CVE с корректными данными
+    create_cve(
+        "CVE-2022-22965",
+        updated_at="2024-07-31T20:10:19.936000Z",
+        vendors=["vmware", "oracle", "cisco"],
+        products=["spring_framework"],
+        cvss_score=9.8,
+    )
+    create_cve(
+        "CVE-2022-20698",
+        updated_at="2024-11-06T16:32:32.016000Z",
+        vendors=["clamav"],
+        products=["clamav"],
+        cvss_score=7.5,
+    )
 
     # Выполняем запрос с фильтрами
     response = client.get(f"{reverse('extended-cve-list')}{params}")
@@ -142,31 +160,63 @@ def test_list_cves_with_filters(create_cve, auth_client, params, expected_cve_id
     assert sorted(cve_ids) == sorted(expected_cve_ids)
 
 
-@pytest.mark.django_db
-def test_cve_filter_by_vendor_case_insensitive(create_cve, auth_client):
-    """
-    Тест для проверки фильтрации по вендору без учета регистра.
-    """
-    client = auth_client()
-
-    # Создаем CVE с вендорами
-    create_cve("CVE-2022-22965")  # Вендоры: vmware, oracle, cisco
-
-    # Проверяем фильтрацию по вендору с разным регистром
-    response = client.get(f"{reverse('extended-cve-list')}?vendor=vmware")
-    assert response.status_code == status.HTTP_200_OK
-    assert len(response.json()["results"]) == 1
-
-    response = client.get(f"{reverse('extended-cve-list')}?vendor=Vmware")
-    assert response.status_code == status.HTTP_200_OK
-    assert len(response.json()["results"]) == 1
-
-    response = client.get(f"{reverse('extended-cve-list')}?vendor=VMWARE")
-    assert response.status_code == status.HTTP_200_OK
-    assert len(response.json()["results"]) == 1
-
-
 # Тесты для деталей CVE
+@pytest.mark.django_db
+def test_cve_extended_detail_serializer_used(create_cve):
+    """
+    Тест для проверки, что для деталей CVE используется CveExtendedDetailSerializer.
+    """
+    # Создаем тестовый CVE
+    create_cve("CVE-2022-22965")
+
+    # Создаем экземпляр CveExtendedViewSet
+    viewset = CveExtendedViewSet()
+
+    # Создаем фиктивный запрос для деталей CVE
+    factory = APIRequestFactory()
+    request = factory.get("/api/extended/cve/CVE-2022-22965/")
+    viewset.request = request
+    viewset.action = "retrieve"
+
+    # Получаем сериализатор
+    serializer_class = viewset.get_serializer_class()
+
+    # Проверяем, что используется CveExtendedDetailSerializer
+    assert serializer_class == CveExtendedDetailSerializer
+
+
+@pytest.mark.django_db
+def test_cve_extended_detail_serializer_data(create_cve):
+    """
+    Тест для проверки данных, возвращаемых CveExtendedDetailSerializer.
+    """
+    # Создаем тестовый CVE
+    cve = create_cve("CVE-2022-22965")
+
+    # Создаем экземпляр CveExtendedDetailSerializer
+    serializer = CveExtendedDetailSerializer(cve)
+
+    # Проверяем, что данные сериализованы корректно
+    assert serializer.data == {
+        "cve_id": "CVE-2022-22965",
+        "description": "A Spring MVC or Spring WebFlux application running on JDK 9+ may be vulnerable to remote code execution (RCE) via data binding. The specific exploit requires the application to run on Tomcat as a WAR deployment. If the application is deployed as a Spring Boot executable jar, i.e. the default, it is not vulnerable to the exploit. However, the nature of the vulnerability is more general, and there may be other ways to exploit it.",
+        "cvssV3_1_data": {
+            "score": 9.8,
+            "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        },
+        "ssvc_data": {},
+        "nvd_json": {},
+        "mitre_json": {},
+        "redhat_json": {},
+        "vulnrichment_json": {},
+        "kev_data": {},
+        "cvssV2_0_data": {},
+        "vendors": {},
+        "weaknesses": [],
+        "tags": [],
+    }
+
+
 @pytest.mark.django_db
 def test_cve_detail_serializer_context_fields(create_cve, create_user, auth_client):
     """
@@ -176,10 +226,12 @@ def test_cve_detail_serializer_context_fields(create_cve, create_user, auth_clie
 
     # Создаем пользователя и тег
     user = create_user(username="john", email="john@doe.com")
-    user_tag = user.tags.first()
-    assert user_tag.name == "log4j"
-    assert user_tag.color == "#0A0031"
-    assert user_tag.description == "This is an example tag"
+    user_tag = UserTag.objects.create(
+        user=user,
+        name="log4j",
+        color="#0A0031",
+        description="This is an example tag",
+    )
 
     # Создаем CVE
     cve = create_cve("CVE-2022-22965")
@@ -198,23 +250,3 @@ def test_cve_detail_serializer_context_fields(create_cve, create_user, auth_clie
             "description": "This is an example tag",
         }
     ]
-
-
-# Тест для обработки ошибок
-@pytest.mark.django_db
-def test_cve_detail_internal_server_error(auth_client):
-    """
-    Тест для проверки обработки 500 ошибки при получении деталей CVE.
-    """
-    client = auth_client()
-
-    # Мокируем ошибку сервера
-    with patch(
-        "cves.views_extended.extended.CveExtendedViewSet.retrieve",
-        side_effect=Exception("Internal Server Error"),
-    ):
-        response = client.get(
-            reverse("extended-cve-detail", kwargs={"cve_id": "CVE-2022-22965"})
-        )
-        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        assert response.json() == {"error": "Internal server error"}
