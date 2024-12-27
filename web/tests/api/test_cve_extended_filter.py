@@ -13,10 +13,10 @@ class TestCveFilter:
         """
         Тест для проверки фильтрации по вендору без учета регистра.
         """
-        # Создаем CVE с вендорами
-        create_cve("CVE-2022-22965", vendors=["Google", "google", "GOOGLE"])
-
         client = auth_client()
+
+        # Создаем CVE с вендорами
+        create_cve("CVE-2022-22965")  # Вендоры будут взяты из JSON-файла
 
         # Проверяем фильтрацию по вендору с разным регистром
         response = client.get(f"{reverse('extended-cve-list')}?vendor=Google")
@@ -36,21 +36,21 @@ class TestCveFilter:
         """
         Тест для проверки фильтрации по продукту без учета регистра.
         """
-        # Создаем CVE с продуктами
-        create_cve("CVE-2022-22965", vendors=["Google$PRODUCT$Android"])
-
         client = auth_client()
 
+        # Создаем CVE с продуктами
+        create_cve("CVE-2022-22965")  # Продукты и вендоры будут взяты из JSON-файла
+
         # Проверяем фильтрацию по продукту с разным регистром
-        response = client.get(f"{reverse('extended-cve-list')}?product=Android")
+        response = client.get(f"{reverse('extended-cve-list')}?product=flex_appliance")
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
 
-        response = client.get(f"{reverse('extended-cve-list')}?product=android")
+        response = client.get(f"{reverse('extended-cve-list')}?product=FLex_appliaCE")
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
 
-        response = client.get(f"{reverse('extended-cve-list')}?product=ANDROID")
+        response = client.get(f"{reverse('extended-cve-list')}?product=fleX_AppLiance")
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
 
@@ -59,32 +59,37 @@ class TestCveFilter:
         """
         Тест для проверки фильтрации по дате.
         """
-        # Создаем CVE с разными датами
-        create_cve("CVE-2022-22965", updated_at=datetime(2022, 1, 1))
-        create_cve("CVE-2023-22490", updated_at=datetime(2023, 1, 1))
-
         client = auth_client()
 
+        # Создаем CVE с разными датами обновления
+        create_cve(
+            "CVE-2022-22965"
+        )  # Дата обновления: 2024-07-31T20:10:19.936000+00:00
+        create_cve(
+            "CVE-2022-20698"
+        )  # Дата обновления: 2024-11-06T16:32:32.016000+00:00
+
         # Фильтрация по начальной дате
-        response = client.get(f"{reverse('extended-cve-list')}?start_date=2022-01-01")
+        response = client.get(f"{reverse('extended-cve-list')}?start_date=2024-07-31")
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 2
 
         # Фильтрация по конечной дате
-        response = client.get(f"{reverse('extended-cve-list')}?end_date=2022-12-31")
+        response = client.get(f"{reverse('extended-cve-list')}?end_date=2024-07-31")
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["cve_id"] == "CVE-2022-22965"
 
     @pytest.mark.django_db
     def test_cve_filter_by_cvss(self, create_cve, auth_client):
         """
         Тест для проверки фильтрации по CVSS.
         """
-        # Создаем CVE с разными уровнями CVSS
-        create_cve("CVE-2022-22965", metrics={"cvssV3_1": {"data": {"score": 7.5}}})
-        create_cve("CVE-2023-22490", metrics={"cvssV3_1": {"data": {"score": 5.0}}})
-
         client = auth_client()
+
+        # Создаем CVE с разными уровнями CVSS
+        create_cve("CVE-2022-22965")  # CVSS-оценка: 9.8
+        create_cve("CVE-2022-20698")  # CVSS-оценка: 7.5
 
         # Фильтрация по высокому уровню CVSS
         response = client.get(f"{reverse('extended-cve-list')}?cvss=high")
@@ -96,4 +101,4 @@ class TestCveFilter:
         response = client.get(f"{reverse('extended-cve-list')}?cvss=medium")
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
-        assert response.json()["results"][0]["cve_id"] == "CVE-2023-22490"
+        assert response.json()["results"][0]["cve_id"] == "CVE-2022-20698"

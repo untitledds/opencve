@@ -57,8 +57,11 @@ class TestCveList:
         response = client.get(reverse("extended-cve-list"))
         assert response.json()["results"] == []
 
+        # Создаем CVE
         create_cve("CVE-2024-31331")
         create_cve("CVE-2024-31332")
+
+        # Проверяем список CVE
         response = client.get(reverse("extended-cve-list"))
         assert response.json()["count"] == 2
         assert response.json()["results"] == [
@@ -70,8 +73,8 @@ class TestCveList:
             },
             {
                 "cve_id": "CVE-2024-31332",
-                "description": "Another CVE description.",
-                "cvss_score": 8.0,
+                "description": "A vulnerability in the OOXML parsing module in Clam AntiVirus (ClamAV) Software version 0.104.1 and LTS version 0.103.4 and prior versions could allow an unauthenticated, remote attacker to cause a denial of service condition on an affected device. The vulnerability is due to improper checks that may result in an invalid pointer read. An attacker could exploit this vulnerability by sending a crafted OOXML file to an affected device. An exploit could allow the attacker to cause the ClamAV scanning process to crash, resulting in a denial of service condition.",
+                "cvss_score": 7.5,
                 "humanized_title": "CVE-2024-31332",
             },
         ]
@@ -179,20 +182,22 @@ class TestCveDetail:
         Тест для проверки фильтрации по дате.
         """
         client = auth_client()
-        create_cve("CVE-2024-31331", updated_at="2024-01-01T00:00:00Z")
-        create_cve("CVE-2024-31332", updated_at="2024-02-01T00:00:00Z")
 
-        # Фильтрация по начальной дате
+        # Создаем CVE с разными датами обновления
+        create_cve("CVE-2024-31331")  # Дата обновления: 2024-10-25
+        create_cve("CVE-2024-31332")  # Дата обновления: 2024-01-01
+
+        # Фильтрация по начальной дате (ожидаем CVE-2024-31331, так как его дата позже 2024-01-15)
         response = client.get(f"{reverse('extended-cve-list')}?start_date=2024-01-15")
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
-        assert response.json()["results"][0]["cve_id"] == "CVE-2024-31332"
+        assert response.json()["results"][0]["cve_id"] == "CVE-2024-31331"
 
-        # Фильтрация по конечной дате
+        # Фильтрация по конечной дате (ожидаем CVE-2024-31332, так как его дата раньше 2024-01-15)
         response = client.get(f"{reverse('extended-cve-list')}?end_date=2024-01-15")
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
-        assert response.json()["results"][0]["cve_id"] == "CVE-2024-31331"
+        assert response.json()["results"][0]["cve_id"] == "CVE-2024-31332"
 
     @patch("cves.models.Cve.nvd_json", new_callable=PropertyMock)
     @patch("cves.models.Cve.mitre_json", new_callable=PropertyMock)
