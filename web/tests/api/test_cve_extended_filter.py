@@ -32,25 +32,25 @@ class TestCveFilter:
         assert len(response.json()["results"]) == 1
 
     @pytest.mark.django_db
-    def test_cve_filter_by_product_case_insensitive(self, create_cve, auth_client):
+    def test_cve_filter_by_vendor_case_insensitive(self, create_cve, auth_client):
         """
-        Тест для проверки фильтрации по продукту без учета регистра.
+        Тест для проверки фильтрации по вендору без учета регистра.
         """
         client = auth_client()
 
-        # Создаем CVE с продуктами
-        create_cve("CVE-2022-22965")  # Продукты и вендоры будут взяты из JSON-файла
+        # Создаем CVE с вендорами
+        create_cve("CVE-2024-31331")  # Вендоры будут взяты из JSON-файла
 
-        # Проверяем фильтрацию по продукту с разным регистром
-        response = client.get(f"{reverse('extended-cve-list')}?product=flex_appliance")
+        # Проверяем фильтрацию по вендору с разным регистром
+        response = client.get(f"{reverse('extended-cve-list')}?vendor=Google")
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
 
-        response = client.get(f"{reverse('extended-cve-list')}?product=FLex_appliaCE")
+        response = client.get(f"{reverse('extended-cve-list')}?vendor=google")
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
 
-        response = client.get(f"{reverse('extended-cve-list')}?product=fleX_AppLiance")
+        response = client.get(f"{reverse('extended-cve-list')}?vendor=GOOGLE")
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
 
