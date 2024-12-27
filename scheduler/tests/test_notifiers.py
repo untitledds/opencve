@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 import pendulum
 
-from includes.notifiers import BaseNotifier
+from includes.notifiers import BaseNotifier, EmailNotifier
 from utils import TestRepo
 
 
@@ -13,6 +13,7 @@ def test_prepare_payload(tests_path, tmp_path_factory):
         "organization_name": "orga1",
         "notification_name": "notification1",
         "notification_type": "webhook",
+        "project_subscriptions": ["foo", "foo$PRODUCT$bar"],
         "notification_conf": {
             "types": ["references"],
             "extras": {
@@ -83,6 +84,18 @@ def test_prepare_payload(tests_path, tmp_path_factory):
             "organization": "orga1",
             "project": "orga1-project1",
             "notification": "notification1",
+            "matched_subscriptions": {
+                "human": [
+                    "Bar",
+                    "Foo",
+                ],
+                "raw": ["foo", "foo$PRODUCT$bar"],
+            },
+            "subscriptions": {
+                "human": ["Bar", "Foo"],
+                "raw": ["foo", "foo$PRODUCT$bar"],
+            },
+            "title": "1 change on Bar, Foo",
             "period": {
                 "start": "2024-01-01T01:00:00+00:00",
                 "end": "2024-01-01T01:59:59+00:00",
@@ -93,6 +106,10 @@ def test_prepare_payload(tests_path, tmp_path_factory):
                         "cve_id": "CVE-2024-6962",
                         "description": "A vulnerability classified as critical was found in Tenda O3 1.0.0.10. This vulnerability affects the function formQosSet. The manipulation of the argument remark/ipRange/upSpeed/downSpeed/enable leads to stack-based buffer overflow. The attack can be initiated remotely. The exploit has been disclosed to the public and may be used. The identifier of this vulnerability is VDB-272116. NOTE: The vendor was contacted early about this disclosure but did not respond in any way.",
                         "cvss31": 8.8,
+                        "subscriptions": {
+                            "human": ["Bar", "Foo"],
+                            "raw": ["foo", "foo$PRODUCT$bar"],
+                        },
                     },
                     "events": [
                         {
@@ -150,3 +167,66 @@ def test_prepare_payload(tests_path, tmp_path_factory):
                 }
             ],
         }
+
+
+def test_email_notifier_get_smtp_conf(override_confs, override_conf):
+    override_confs(
+        "opencve",
+        {
+            "notification_smtp_host": "smtp.example.com",
+            "notification_smtp_mail_from": "john@example.com",
+            "notification_smtp_port": "587",
+            "notification_smtp_use_tls": "True",
+            "notification_smtp_validate_certs": "True",
+            "notification_smtp_timeout": "30",
+            "notification_smtp_user": "user",
+            "notification_smtp_password": "password",
+            "notification_smtp_start_tls": "True",
+        },
+    )
+
+    def email_notifier():
+        return EmailNotifier(
+            semaphore=None,
+            session=None,
+            notification={"notification_conf": {"extras": {"email": {}}}},
+            changes=[],
+            changes_details={},
+            period={},
+        )
+
+    # All available settings
+    notif = email_notifier()
+    assert notif.get_smtp_conf() == {
+        "hostname": "smtp.example.com",
+        "port": 587,
+        "use_tls": True,
+        "validate_certs": True,
+        "timeout": 30,
+        "username": "user",
+        "password": "password",
+        "start_tls": True,
+    }
+
+    # Remove optional settings (user, password, start_tls)
+    override_confs(
+        "opencve",
+        {
+            "notification_smtp_host": "smtp.example.com",
+            "notification_smtp_mail_from": "john@example.com",
+            "notification_smtp_port": "587",
+            "notification_smtp_use_tls": "True",
+            "notification_smtp_validate_certs": "True",
+            "notification_smtp_timeout": "30",
+            "notification_smtp_user": "",
+            "notification_smtp_password": "",
+            "notification_smtp_start_tls": "",
+        },
+    )
+    assert notif.get_smtp_conf() == {
+        "hostname": "smtp.example.com",
+        "port": 587,
+        "use_tls": True,
+        "validate_certs": True,
+        "timeout": 30,
+    }

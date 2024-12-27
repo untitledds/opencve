@@ -31,8 +31,11 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django.contrib.postgres",
     "django_extensions",
+    "django_prometheus",
     "allauth",
     "allauth.account",
+    "allauth.socialaccount",
+    "auditlog",
     "crispy_forms",
     "crispy_bootstrap3",
     "debug_toolbar",
@@ -41,12 +44,14 @@ INSTALLED_APPS = [
     "rest_framework",
     "changes",
     "cves",
+    "onboarding",
     "organizations",
     "projects",
     "users",
 ]
 
 MIDDLEWARE = [
+    "django_prometheus.middleware.PrometheusBeforeMiddleware",
     "debug_toolbar.middleware.DebugToolbarMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -57,7 +62,10 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "allauth.account.middleware.AccountMiddleware",
     "hijack.middleware.HijackUserMiddleware",
+    "onboarding.middlewares.OnboardingMiddleware",
     "organizations.middlewares.OrganizationMiddleware",
+    "auditlog.middleware.AuditlogMiddleware",
+    "django_prometheus.middleware.PrometheusAfterMiddleware",
 ]
 
 ROOT_URLCONF = "opencve.urls"
@@ -106,6 +114,7 @@ DATABASES = {
         default="postgresql://username:password@example.com:5432/opencve_web",
     )
 }
+DATABASES["default"]["ENGINE"] = "django_prometheus.db.backends.postgresql"
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -173,6 +182,22 @@ ACCOUNT_FORMS = {
     "reset_password": "users.forms.PasswordResetForm",
     "reset_password_from_key": "users.forms.SetPasswordForm",
 }
+SOCIALACCOUNT_FORMS = {"signup": "users.forms.CustomSocialSignupForm"}
+SOCIALACCOUNT_AUTO_SIGNUP = False
+SOCIALACCOUNT_EMAIL_REQUIRED = False
+SOCIALACCOUNT_EMAIL_AUTHENTICATION = True
+SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT = True
+
+# Audit Logs
+AUDITLOG_INCLUDE_TRACKING_MODELS = (
+    "organizations.Organization",
+    "organizations.Membership",
+    "projects.Project",
+    "projects.Notification",
+    "users.UserTag",
+    "users.CveTag",
+    {"model": "users.User", "mask_fields": ["password"]},
+)
 
 # Email backend
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
@@ -217,3 +242,6 @@ V1_DATABASE = env.db(
     "V1_DATABASE",
     default="postgresql://username:password@example.com:5432/opencve_v1",
 )
+
+# Redirect user to onboarding view if they do not belong to an organization
+ENABLE_ONBOARDING = True

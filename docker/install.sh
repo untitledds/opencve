@@ -7,6 +7,22 @@ set -e
 
 add-config-files() {
 
+    _RELEASE=$1
+    _MAJOR_VERSION=${_RELEASE:0:2}
+
+    echo "--> Checking release to install"
+    if [[ $_RELEASE == "latest" ]] ; then
+        _RELEASE=`git describe --tags --abbrev=0`
+        echo "--> Checkout latest release: $_RELEASE"
+        git checkout $_RELEASE
+    elif [[ $_MAJOR_VERSION =~ ^[v0-1|0-1.]+$ ]] ; then
+        echo "ERROR: this script works only for release >= 2.0.0, release given: $_RELEASE"
+        exit 1
+    else
+        echo "--> Checkout release: $_RELEASE"
+        git checkout $_RELEASE
+    fi
+
     echo "--> Adding Airflow configuration file"
     cp ../scheduler/airflow.cfg.example ../scheduler/airflow.cfg
 
@@ -16,9 +32,11 @@ add-config-files() {
 
     echo "--> Copying .env file for docker compose"
     cp ./conf/.env.example ./.env
+    sed -i.bak "s/OPENCVE_VERSION=.*/OPENCVE_VERSION=$_RELEASE/g" ./.env && rm -f ./.env.bak
 
     echo "--> Copying opencve.conf.template for Nginx"
     cp ./conf/opencve.conf.template.example ./conf/opencve.conf.template
+    cp ./conf/default.conf.template.example ./conf/default.conf.template
 
     echo ""
     echo "/!\ Don't forget to update the .env and settings.py files with your inputs before starting the docker compose stack:"
@@ -110,16 +128,16 @@ start-opencve-dag() {
 }
 
 display-usage() {
-    echo "Usage: install.sh OPTIONS"
+    echo "Usage: install.sh OPTIONS [-hr]"
     echo ""
     echo "Examples:"
+    echo "  ./install.sh help"
     echo "  ./install.sh"
     echo "  ./install.sh prepare"
-    echo "  ./install.sh start-docker-stack"
     echo ""
     echo "OPTIONS:"
     echo ""
-    echo " prepare : add-config-files & set-airflow-start-date"
+    echo " prepare : Run add-config-files & set-airflow-start-date"
     echo " start   : Run start-docker-stack & clone-repositories & create-superuser & import-opencve-kb & start-opencve-dag"
     echo ""
     echo ""
@@ -134,8 +152,38 @@ display-usage() {
     echo " start-opencve-dag      : Unpause OpenCVE Dag in Airflow"
     echo ""
     echo ""
+    echo "ARGUMENT:"
+    echo ""
+    echo " -h : display help."
+    echo " -r : release or branch to install. Default: latest"
+    echo ""
+    echo "Example:"
+    echo "  ./install.sh -r v2.0.0"
+    echo ""
 }
 
+_RELEASE="latest"
+OPTSTRING=":r:h"
+
+while getopts ${OPTSTRING} opt; do
+  case ${opt} in
+    r)
+      _RELEASE="${OPTARG}"
+      ;;
+    h)
+      display-usage
+      exit 1
+      ;;
+    :)
+      echo "Option -${OPTARG} requires an argument."
+      exit 1
+      ;;
+    ?)
+      echo "Invalid argument: -${OPTARG}."
+      exit 1
+      ;;
+  esac
+done
 
 _OPTIONS=$1
 
@@ -144,7 +192,7 @@ case $_OPTIONS in
         display-usage
         ;;
     "prepare" )
-        add-config-files
+        add-config-files $_RELEASE
         set-airflow-start-date
         ;;
     "start" )
@@ -176,7 +224,7 @@ case $_OPTIONS in
         start-opencve-dag
         ;;
     * )
-        add-config-files
+        add-config-files $_RELEASE
         set-airflow-start-date
         start-docker-stack
         clone-repositories

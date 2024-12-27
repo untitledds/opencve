@@ -2,17 +2,28 @@ from datetime import date
 from unittest.mock import patch
 
 from bs4 import BeautifulSoup
+<<<<<<< HEAD
+=======
+from django.test import override_settings
+>>>>>>> 32d272b81e348345619b463b20ee56221db9689e
 from django.urls import reverse
 from django.utils.timezone import now
 from freezegun import freeze_time
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> 32d272b81e348345619b463b20ee56221db9689e
 from organizations.models import Membership, Organization
 
 
 # List Organizations
 
 
+<<<<<<< HEAD
+=======
+@override_settings(ENABLE_ONBOARDING=False)
+>>>>>>> 32d272b81e348345619b463b20ee56221db9689e
 def test_list_organizations(auth_client, create_user, create_organization):
     user1 = create_user(username="user1")
     client = auth_client(user1)
@@ -43,6 +54,10 @@ def test_list_organizations(auth_client, create_user, create_organization):
 # Create Organizations
 
 
+<<<<<<< HEAD
+=======
+@override_settings(ENABLE_ONBOARDING=False)
+>>>>>>> 32d272b81e348345619b463b20ee56221db9689e
 def test_create_organization(auth_client, create_user, create_organization):
     user1 = create_user(username="user1")
     client = auth_client(user1)
@@ -59,6 +74,10 @@ def test_create_organization(auth_client, create_user, create_organization):
     ]
 
 
+<<<<<<< HEAD
+=======
+@override_settings(ENABLE_ONBOARDING=False)
+>>>>>>> 32d272b81e348345619b463b20ee56221db9689e
 def test_create_existing_organization(auth_client, create_user, create_organization):
     user1 = create_user(username="user1")
     create_organization(name="orga1", user=user1)
@@ -94,6 +113,10 @@ def test_edit_organization_is_owner(auth_client, create_user, create_organizatio
     assert client.get(url).status_code == 404
 
 
+<<<<<<< HEAD
+=======
+@override_settings(ENABLE_ONBOARDING=False)
+>>>>>>> 32d272b81e348345619b463b20ee56221db9689e
 def test_edit_organization_not_found(auth_client, create_user):
     user1 = create_user(username="user1")
     client = auth_client(user1)
@@ -116,6 +139,10 @@ def test_edit_organization(auth_client, create_user, create_organization):
 # Delete Organizations
 
 
+<<<<<<< HEAD
+=======
+@override_settings(ENABLE_ONBOARDING=False)
+>>>>>>> 32d272b81e348345619b463b20ee56221db9689e
 def test_delete_organization_is_owner(auth_client, create_user, create_organization):
     user1 = create_user(username="user1")
     create_organization(name="orga1", user=user1)
@@ -138,6 +165,10 @@ def test_delete_organization_is_owner(auth_client, create_user, create_organizat
     assert client.post(url).status_code == 404
 
 
+<<<<<<< HEAD
+=======
+@override_settings(ENABLE_ONBOARDING=False)
+>>>>>>> 32d272b81e348345619b463b20ee56221db9689e
 def test_delete_organization(auth_client, create_user, create_organization):
     user = create_user(username="user1")
     client = auth_client(user)
@@ -175,6 +206,10 @@ def test_list_memberships(auth_client, create_user, create_organization):
 # Create Memberships
 
 
+<<<<<<< HEAD
+=======
+@override_settings(ENABLE_ONBOARDING=False)
+>>>>>>> 32d272b81e348345619b463b20ee56221db9689e
 def test_create_memberships_is_owner(auth_client, create_user, create_organization):
     user1 = create_user(username="user1", email="user1@example.com")
     create_organization(name="orga1", user=user1)
@@ -270,6 +305,10 @@ def test_create_memberships_invalid_payload(
 # Delete Memberships
 
 
+<<<<<<< HEAD
+=======
+@override_settings(ENABLE_ONBOARDING=False)
+>>>>>>> 32d272b81e348345619b463b20ee56221db9689e
 def test_delete_memberships_is_owner(auth_client, create_user, create_organization):
     user1 = create_user(username="user1")
     member = create_user(username="member")
@@ -354,6 +393,10 @@ def test_delete_memberships_without_owners(
     ]
 
 
+<<<<<<< HEAD
+=======
+@override_settings(ENABLE_ONBOARDING=False)
+>>>>>>> 32d272b81e348345619b463b20ee56221db9689e
 def test_delete_membership_success_url(auth_client, create_user, create_organization):
     user1 = create_user(username="user1", email="user1@example.com")
     organization = create_organization(name="orga1", user=user1, owner=True)
@@ -390,6 +433,10 @@ def test_delete_membership_success_url(auth_client, create_user, create_organiza
 # Memberships Invitation
 
 
+<<<<<<< HEAD
+=======
+@override_settings(ENABLE_ONBOARDING=False)
+>>>>>>> 32d272b81e348345619b463b20ee56221db9689e
 def test_organization_invitation(auth_client, create_user, create_organization):
     user1 = create_user(username="user1", email="user1@example.com")
     organization = create_organization(name="orga1", user=user1, owner=True)

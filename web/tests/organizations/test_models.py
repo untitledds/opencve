@@ -1,5 +1,10 @@
 from datetime import date
 
+<<<<<<< HEAD
+=======
+import pytest
+from django.core.exceptions import ValidationError
+>>>>>>> 32d272b81e348345619b463b20ee56221db9689e
 from django.utils.timezone import now
 from freezegun import freeze_time
 
@@ -16,6 +21,26 @@ def test_organization_model(create_user, create_organization):
     assert org.membership_set.first().role == Membership.OWNER
 
 
+<<<<<<< HEAD
+=======
+def test_organization_get_projects_vendors(
+    create_user, create_organization, create_project
+):
+    user = create_user()
+    organization = create_organization("myorga", user)
+    create_project(name="project1", organization=organization, vendors=["foo", "bar"])
+    create_project(name="project2", organization=organization, vendors=["bar", "baz"])
+
+    assert organization.get_projects_vendors() == ["bar", "baz", "foo"]
+
+
+def test_organization_name_validator(create_organization):
+    orga = Organization.objects.create(name="with'quote")
+    with pytest.raises(ValidationError):
+        assert orga.full_clean()
+
+
+>>>>>>> 32d272b81e348345619b463b20ee56221db9689e
 def test_membership_model(create_user):
     organization = Organization.objects.create(name="orga1")
 

@@ -1,3 +1,6 @@
+from auditlog.context import disable_auditlog
+from allauth.account.views import LoginView, SignupView
+from allauth.socialaccount.views import ConnectionsView
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import PasswordChangeView
@@ -15,6 +18,7 @@ from django.views.generic import (
 from opencve.mixins import RequestViewMixin
 from organizations.mixins import Membership
 from users.forms import PasswordChangeForm, ProfileChangeForm, UserTagForm
+from users.mixin import SocialProvidersMixin
 from users.models import CveTag, UserTag, User
 
 
@@ -127,6 +131,10 @@ class SettingsDeleteAccountView(LoginRequiredMixin, SuccessMessageMixin, DeleteV
 
         return super().get(request, *args, **kwargs)
 
+    def post(self, request, *args, **kwargs):
+        with disable_auditlog():
+            return super().post(request, *args, **kwargs)
+
     def get_object(self, queryset=None):
         return self.request.user
 
@@ -136,3 +144,15 @@ class SettingsPasswordView(LoginRequiredMixin, SuccessMessageMixin, PasswordChan
     template_name = "users/settings/settings_password.html"
     success_url = reverse_lazy("settings_password")
     success_message = "Your password has been updated."
+
+
+class CustomLoginView(SocialProvidersMixin, LoginView):
+    pass
+
+
+class CustomSignupView(SocialProvidersMixin, SignupView):
+    pass
+
+
+class CustomConnectionView(LoginRequiredMixin, SocialProvidersMixin, ConnectionsView):
+    success_url = reverse_lazy("settings_social")

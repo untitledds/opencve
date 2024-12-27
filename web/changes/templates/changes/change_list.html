@@ -2,12 +2,8 @@
 {% load opencve_extras %}
 {% load crispy_forms_tags %}
 
-{% block navbar_title%}
-Dashboard
-{% if user.settings.activities_view == 'subscriptions' %}
-<small class="label label-default"><i class="fa fa-filter"></i> subscriptions</small>
-{% endif %}
-{% endblock %}
+{% block title%}Dashboard - {{ block.super }}{% endblock %}
+{% block navbar_title%}Dashboard{% endblock %}
 
 {% block content %}
 
@@ -27,6 +23,11 @@ Dashboard
             <div class="box box-primary">
                 <div class="box-header with-border">
                     <h3 class="box-title">Vulnerabilities Activity</h3>
+                    {% if user.settings.activities_view == 'subscriptions' %}
+                    <div class="box-tools pull-right">
+                        <small class="label label-default"><i class="fa fa-filter"></i> subscriptions</small>
+                    </div>
+                    {% endif %}
                 </div>
                 <div class="box-body">
                     {% if not changes %}
@@ -53,34 +54,7 @@ Dashboard
                                 <h3 class="timeline-header"><a href="{% url 'cve' cve_id=change.cve.cve_id %}">{{ change.cve.cve_id }}</a> <i>{% if change|is_new_cve %}is a new CVE{% else %}has changed{% endif %}</i> <a href="{% url 'change' cve_id=change.cve.cve_id id=change.id %}" class="btn-json-diff" data-toggle="tooltip" data-container="body" title="View the change details"><i class="fa fa-code"></i></a></h3>
                                 <div class="timeline-body">
                                     <p>{{ change.cve.description }}</p>
-                                    {% if not change|is_new_cve %}
-                                    <div class="box-group" id="{{ change.id }}">
-                                        {% for event in change.events %}
-                                        <div class="panel box box-changes">
-                                            <div class="box-header  collapsed pointer change-collapsed" data-toggle="collapse" data-parent="#{{ change.id }}" href="#{{ change.id }}-{{ event.type }}" aria-expanded="false"">
-                                                <h4 class="box-title">{{ event|event_humanized_type }}
-                                                <span class="box-meta">{{ event.details|event_excerpt|safe }}<i class="fa fa-arrow-circle-o-down"></i><i class="fa fa-arrow-circle-o-up"></i></span>
-                                                </h4>
-                                            </div>
-                                            <div id="{{ change.id }}-{{ event.type }}" class="panel-collapse collapse" aria-expanded="false">
-                                                <div class="box-body">
-                                                    <table class="table">
-                                                        <thead>
-                                                        <th>Values Removed</th>
-                                                        <th>Values Added</th>
-                                                        </thead>
-                                                        <tbody>
-                                                        {% with template_name="changes/events/"|add:event.type|add:"_details.html" %}
-                                                        {% include template_name with hide_type=1 %}
-                                                        {% endwith %}
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        {% endfor %}
-                                    </div>
-                                    {% endif %}
+                                    {% include 'changes/change_events.html' %}
                                 </div>
                             </div>
                         </li>
@@ -106,6 +80,20 @@ Dashboard
         </div>
 
         <div class="col-md-4">
+             <div class="box box-primary">
+                <div class="box-header collapsed pointer change-collapsed" data-toggle="collapse" href="#dashboard-settings" aria-expanded="false">
+                    <h4 class=" box-title">Dashboard Settings
+                        <span class="box-meta">
+                            <i class="fa fa-plus"></i>
+                            <i class="fa fa-minus"></i>
+                        </span>
+                    </h4>
+                </div>
+                <div id="dashboard-settings" class="panel-collapse collapse" aria-expanded="false">
+                    <div class="box-body">{% crispy form %}</div>
+                </div>
+            </div>
+
             <div class="box box-primary">
                 <div class="box-header with-border">
                     <h3 class="box-title">Projects</h3>

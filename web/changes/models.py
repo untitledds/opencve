@@ -12,6 +12,8 @@ from projects.models import Project
 
 class Change(BaseModel):
     path = models.TextField(default=None)
+    # This field is not useful anymore and will
+    # be removed in a future version.
     commit = models.CharField(max_length=40)
     types = models.JSONField(default=list)
 
@@ -36,6 +38,16 @@ class Change(BaseModel):
         with open(self.full_path) as f:
             data = json.load(f)
         return data
+
+    @property
+    def change_data(self):
+        kb_change = [
+            c
+            for c in self.kb_data["opencve"].get("changes", [])
+            if c["id"] == str(self.id)
+        ]
+
+        return kb_change[0] if kb_change else {}
 
     def get_previous_change(self):
         return (

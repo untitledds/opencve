@@ -1,5 +1,9 @@
 import pytest
 from bs4 import BeautifulSoup
+<<<<<<< HEAD
+=======
+from django.test import override_settings
+>>>>>>> 32d272b81e348345619b463b20ee56221db9689e
 from django.urls import reverse
 
 from cves.models import Cve
@@ -54,6 +58,10 @@ def test_delete_owner_account(auth_client, create_user, create_organization):
     )
 
 
+<<<<<<< HEAD
+=======
+@override_settings(ENABLE_ONBOARDING=False)
+>>>>>>> 32d272b81e348345619b463b20ee56221db9689e
 def test_delete_member_account(auth_client, create_user):
     user = create_user(username="user1")
     client = auth_client(user)
@@ -90,3 +98,22 @@ def test_delete_account_cascade_delete(auth_client, create_user, create_organiza
     assert User.objects.filter(id=user_id).count() == 0
     assert UserTag.objects.filter(user_id=user_id).count() == 0
     assert CveTag.objects.filter(user_id=user_id).count() == 0
+<<<<<<< HEAD
+=======
+
+
+def test_settings_social_access(client, auth_client, create_user):
+    url = reverse("settings_social")
+
+    response = client.get(url, data={}, follow=True)
+    assert response.redirect_chain == [(f"{reverse('account_login')}?next={url}", 302)]
+
+    user = create_user()
+    client = auth_client(user)
+
+    response = client.get(url)
+    assert response.status_code == 200
+    soup = BeautifulSoup(response.content, features="html.parser")
+    content = soup.find("li", {"class": "active"}).text
+    assert content.strip() == "Social Auth"
+>>>>>>> 32d272b81e348345619b463b20ee56221db9689e
