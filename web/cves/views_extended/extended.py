@@ -1,13 +1,13 @@
 from rest_framework import viewsets, status, filters
 from rest_framework.response import Response
 from django.http import Http404
-from cves.views_extended import CveDetailView
+from cves.views import CveDetailView
 from cves.models import Cve, CveTag
 from cves.serializers_extended.extended import (
     CveExtendedListSerializer,
     CveExtendedDetailSerializer,
 )
-from cves.utils import list_to_dict_vendors, list_weaknesses, list_filtered_cves
+from cves.utils import list_to_dict_vendors, list_weaknesses
 import logging
 import json
 
@@ -15,27 +15,21 @@ import json
 logger = logging.getLogger(__name__)
 
 
-class CveExtendedListViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Cve.objects.all()
-    serializer_class = CveExtendedListSerializer
-
-
-class CveExtendedDetailViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Cve.objects.all()
-    serializer_class = CveExtendedDetailSerializer
-
-
-class CveFilter(filters.FilterSet):
+class CveFilter(filters.BaseFilterBackend):
     """
     Фильтр для CVE по дате.
     """
 
-    start_date = DateFilter(field_name="updated_at", lookup_expr="gte")
-    end_date = DateFilter(field_name="updated_at", lookup_expr="lte")
+    def filter_queryset(self, request, queryset, view):
+        start_date = request.query_params.get("start_date")
+        end_date = request.query_params.get("end_date")
 
-    class Meta:
-        model = Cve
-        fields = ["start_date", "end_date"]
+        if start_date:
+            queryset = queryset.filter(updated_at__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(updated_at__lte=end_date)
+
+        return queryset
 
 
 class CveExtendedViewSet(viewsets.ReadOnlyModelViewSet):
@@ -44,8 +38,7 @@ class CveExtendedViewSet(viewsets.ReadOnlyModelViewSet):
     """
 
     serializer_class = CveExtendedListSerializer
-    filter_backends = [filters.OrderingFilter]
-    filterset_class = CveFilter
+    filter_backends = [CveFilter, filters.OrderingFilter]  # Используем CveFilter
     ordering_fields = ["created_at", "updated_at"]
     ordering = ["-updated_at"]
 
