@@ -11,7 +11,7 @@ from cves.serializers import (
 )
 from .extended_serializers import ExtendedCveListSerializer, ExtendedCveDetailSerializer
 from .extended_utils import extended_list_filtered_cves
-from cves.utils import is_valid_uuid
+from opencve.utils import is_valid_uuid
 
 
 class ExtendedCveViewSet(viewsets.ReadOnlyModelViewSet):
