@@ -134,12 +134,28 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.ref_type }}" == "tag" ]; then
+            echo "Using tag: ${{ github.ref_name }}"
+            echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "Using branch name: ${{ github.ref_name }}"
+            echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build and push webserver image
         run: |
-          docker build -f web/Dockerfile -t ghcr.io/${{ github.repository }}/opencve-webserver:${{ github.ref_name }} .
-          docker push ghcr.io/${{ github.repository }}/opencve-webserver:${{ github.ref_name }}
+          cd web  # Переход в папку web
+          docker build \
+            --build-arg OPENCVE_VERSION=${{ steps.version.outputs.version }} \
+            -t ghcr.io/${{ github.repository }}/opencve-webserver:${{ steps.version.outputs.version }} .
+          docker push ghcr.io/${{ github.repository }}/opencve-webserver:${{ steps.version.outputs.version }}
 
       - name: Build and push scheduler image
         run: |
-          docker build -f scheduler/Dockerfile -t ghcr.io/${{ github.repository }}/opencve-scheduler:${{ github.ref_name }} .
-          docker push ghcr.io/${{ github.repository }}/opencve-scheduler:${{ github.ref_name }}
+          cd scheduler  # Переход в папку scheduler
+          docker build \
+            -t ghcr.io/${{ github.repository }}/opencve-scheduler:${{ steps.version.outputs.version }} .
+          docker push ghcr.io/${{ github.repository }}/opencve-scheduler:${{ steps.version.outputs.version }}
