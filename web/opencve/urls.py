@@ -14,9 +14,13 @@ from cves.resources import (
 from organizations.resources import OrganizationViewSet
 from projects.resources import ProjectCveViewSet, ProjectViewSet
 from users.views import CustomLoginView, CustomSignupView
-from cves.views_extended.extended import (
-    CveExtendedViewSet,
-)  # Импортируем CveExtendedViewSet
+from cves.extended_resources import (
+    ExtendedCveViewSet,
+    ExtendedWeaknessViewSet,
+    ExtendedVendorViewSet,
+    ExtendedProductViewSet,
+    ExtendedSubscriptionViewSet,
+)
 
 # API Router
 router = routers.SimpleRouter(trailing_slash=False)
@@ -50,9 +54,23 @@ products_cves_router = routers.NestedSimpleRouter(
 )
 products_cves_router.register(f"cve", ProductCveViewSet, basename="product-cves")
 
-# Добавляем отдельные маршруты для CveExtendedViewSet
+# Extended API Router
 extended_router = routers.SimpleRouter(trailing_slash=False)
-extended_router.register(r"extended/cve", CveExtendedViewSet, basename="extended-cve")
+extended_router.register(r"extended/cve", ExtendedCveViewSet, basename="extended-cve")
+extended_router.register(
+    r"extended/weakness", ExtendedWeaknessViewSet, basename="extended-weakness"
+)
+extended_router.register(
+    r"extended/vendor", ExtendedVendorViewSet, basename="extended-vendor"
+)
+extended_router.register(
+    r"extended/product", ExtendedProductViewSet, basename="extended-product"
+)
+extended_router.register(
+    r"extended/subscription",
+    ExtendedSubscriptionViewSet,
+    basename="extended-subscription",
+)
 
 urlpatterns = [
     path("__debug__/", include("debug_toolbar.urls")),
@@ -75,6 +93,6 @@ urlpatterns = [
     path("api/", include(vendors_router.urls)),
     path("api/", include(products_cves_router.urls)),
     path("api/", include(weaknesses_router.urls)),
-    # Отдельные маршруты для CveExtendedViewSet
+    # Extended API routes
     path("api/", include(extended_router.urls)),
 ]
