@@ -37,6 +37,7 @@ class CveFilter(filters.BaseFilterBackend):
                 queryset = queryset.filter(updated_at__lte=end_date)
         except ValueError as e:
             logger.error(f"Invalid date format: {e}")
+            raise ValueError("Invalid date format. Use YYYY-MM-DD.")
 
         # Фильтрация по вендору
         vendor = request.query_params.get("vendor")
@@ -67,14 +68,14 @@ class CveFilter(filters.BaseFilterBackend):
         # Фильтрация по CVSS
         cvss = request.query_params.get("cvss")
         if cvss:
-            queryset = list_filtered_cves(
-                {"cvss": cvss}, request.user, queryset=queryset
-            )
+            filtered_cves = list_filtered_cves({"cvss": cvss}, request.user)
+            queryset = queryset.filter(cve_id__in=[cve.cve_id for cve in filtered_cves])
 
         # Фильтрация по тегу
         tag = request.query_params.get("tag")
         if tag and request.user.is_authenticated:
-            queryset = list_filtered_cves({"tag": tag}, request.user, queryset=queryset)
+            filtered_cves = list_filtered_cves({"tag": tag}, request.user)
+            queryset = queryset.filter(cve_id__in=[cve.cve_id for cve in filtered_cves])
 
         return queryset
 
