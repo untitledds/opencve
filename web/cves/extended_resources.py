@@ -3,11 +3,16 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.shortcuts import get_object_or_404
 from cves.models import Cve, Vendor, Product, Weakness
-from organizations.models import Project
-from cves.serializers import VendorListSerializer, ProductListSerializer, WeaknessListSerializer
+from projects.models import Project
+from cves.serializers import (
+    VendorListSerializer,
+    ProductListSerializer,
+    WeaknessListSerializer,
+)
 from .extended_serializers import ExtendedCveListSerializer, ExtendedCveDetailSerializer
 from .extended_utils import extended_list_filtered_cves
 from cves.utils import is_valid_uuid
+
 
 class ExtendedCveViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ExtendedCveListSerializer
@@ -28,11 +33,13 @@ class ExtendedCveViewSet(viewsets.ReadOnlyModelViewSet):
     def get_serializer_class(self):
         return self.serializer_classes.get(self.action, self.serializer_class)
 
+
 class ExtendedWeaknessViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = WeaknessListSerializer
     queryset = Weakness.objects.all().order_by("cwe_id")
     permission_classes = [permissions.IsAuthenticated]
     lookup_field = "cwe_id"
+
 
 class ExtendedVendorViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = VendorListSerializer
@@ -40,6 +47,7 @@ class ExtendedVendorViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Vendor.objects.order_by("name").all()
     lookup_field = "name"
     lookup_url_kwarg = "name"
+
 
 class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ProductListSerializer
@@ -50,6 +58,7 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         vendor = get_object_or_404(Vendor, name=self.kwargs["vendor_name"])
         return Product.objects.filter(vendor=vendor).order_by("name").all()
+
 
 class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
     permission_classes = [permissions.IsAuthenticated]
@@ -79,7 +88,9 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
             or not is_valid_uuid(project_id)
             or obj_type not in ["vendor", "product"]
         ):
-            return Response({"status": "error", "message": "Invalid request"}, status=400)
+            return Response(
+                {"status": "error", "message": "Invalid request"}, status=400
+            )
 
         # Проверяем, что проект принадлежит текущей организации пользователя
         project = get_object_or_404(
@@ -96,7 +107,9 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
                 try:
                     project_vendors.remove(vendor.name)
                 except KeyError:
-                    return Response({"status": "error", "message": "Not subscribed"}, status=400)
+                    return Response(
+                        {"status": "error", "message": "Not subscribed"}, status=400
+                    )
 
             project.subscriptions["vendors"] = list(project_vendors)
 
@@ -110,7 +123,9 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
                 try:
                     project_products.remove(product.vendored_name)
                 except KeyError:
-                    return Response({"status": "error", "message": "Not subscribed"}, status=400)
+                    return Response(
+                        {"status": "error", "message": "Not subscribed"}, status=400
+                    )
 
             project.subscriptions["products"] = list(project_products)
 

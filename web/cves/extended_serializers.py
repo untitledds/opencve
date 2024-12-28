@@ -4,6 +4,7 @@ from cves.utils import humanize, get_metric_from_vector, cvss_human_score
 
 CVSS_FIELDS = ["cvssV2_0", "cvssV3_0", "cvssV3_1", "cvssV4_0"]
 
+
 class ExtendedCveListSerializer(serializers.ModelSerializer):
     cvss_score = serializers.SerializerMethodField()
     cvss_human_score = serializers.SerializerMethodField()
@@ -51,6 +52,7 @@ class ExtendedCveListSerializer(serializers.ModelSerializer):
         """
         return humanize(instance.title)
 
+
 class ExtendedCveDetailSerializer(serializers.ModelSerializer):
     humanized_title = serializers.SerializerMethodField()
     nvd_json = serializers.SerializerMethodField()
@@ -94,7 +96,12 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer):
         return instance.vulnrichment_json
 
     def get_tags(self, instance):
-        if self.context.get("request") and self.context["request"].user.is_authenticated:
-            cve_tags = instance.cve_tags.filter(user=self.context["request"].user).first()
+        if (
+            self.context.get("request")
+            and self.context["request"].user.is_authenticated
+        ):
+            cve_tags = instance.cve_tags.filter(
+                user=self.context["request"].user
+            ).first()
             return cve_tags.tags if cve_tags else []
         return []
