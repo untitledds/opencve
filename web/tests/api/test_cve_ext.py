@@ -75,8 +75,8 @@ def test_list_cves_with_filters(create_cve, auth_client, params, result):
     assert response.json()["results"] == []
 
     # Создаем тестовые CVE
-    create_cve("CVE-2021-44228", vendors=["siemens", "apache"])
-    create_cve("CVE-2022-22965", vendors=["veritas", "oracle"])
+    create_cve("CVE-2021-44228")
+    create_cve("CVE-2022-22965")
 
     # Выполняем запрос с фильтрами
     response = client.get(f"{reverse('extended-cve-list')}{params}")
@@ -89,7 +89,7 @@ def test_list_cves_filtering_by_not_existing_vendors(create_cve, auth_client):
     Тест для проверки фильтрации по несуществующим вендорам и продуктам.
     """
     client = auth_client()
-    create_cve("CVE-2021-44228", vendors=["siemens"])
+    create_cve("CVE-2021-44228")
 
     # Проверяем фильтрацию по существующему вендору
     response = client.get(f"{reverse('extended-cve-list')}?vendor=siemens")
