@@ -1,8 +1,16 @@
 from rest_framework import serializers
 from cves.models import Cve
-from cves.utils import humanize, get_metric_from_vector, cvss_human_score
+from cves.utils import humanize, get_metric_from_vector
+from cves.templatetags.opencve_extras import cvss_human_score, cvss_level
+from cves.constants import (
+    CVSS_CHART_BACKGROUNDS,
+    CVSS_HUMAN_SCORE,
+    CVSS_NAME_MAPPING,
+    CVSS_VECTORS_MAPPING,
+    PRODUCT_SEPARATOR,
+)
 
-CVSS_FIELDS = ["cvssV2_0", "cvssV3_0", "cvssV3_1", "cvssV4_0"]
+CVSS_FIELDS = ["cvssV4_0", "cvssV3_1", "cvssV3_0", "cvssV2_0"]
 
 
 class ExtendedCveListSerializer(serializers.ModelSerializer):
