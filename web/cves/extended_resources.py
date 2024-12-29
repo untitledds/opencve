@@ -9,7 +9,12 @@ from cves.serializers import (
     ProductListSerializer,
     WeaknessListSerializer,
 )
-from .extended_serializers import ExtendedCveListSerializer, ExtendedCveDetailSerializer
+from .extended_serializers import (
+    ExtendedCveListSerializer,
+    ExtendedCveDetailSerializer,
+    ProjectSubscriptionsSerializer,
+    SubscriptionSerializer,
+)
 from .extended_utils import extended_list_filtered_cves
 from opencve.utils import is_valid_uuid
 
@@ -56,12 +61,15 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
     lookup_url_kwarg = "name"
 
     def get_queryset(self):
-        vendor = get_object_or_404(Vendor, name=self.kwargs["vendor_name"])
+        vendor = get_object_or_404(Vendor, name=self.kwargs["name"])
         return Product.objects.filter(vendor=vendor).order_by("name").all()
 
 
 class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = (
+        SubscriptionSerializer  # Указываем сериализатор для входных данных
+    )
 
     @action(detail=False, methods=["post"])
     def subscribe(self, request):
@@ -78,56 +86,66 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
         return self._handle_subscription(request, "unsubscribe")
 
     def _handle_subscription(self, request, action):
-        obj_type = request.data.get("obj_type")
-        obj_id = request.data.get("obj_id")
-        project_id = request.data.get("project_id")
+        # Валидируем входные данные с помощью сериализатора
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        if (
-            not all([obj_type, obj_id, project_id])
-            or not is_valid_uuid(obj_id)
-            or not is_valid_uuid(project_id)
-            or obj_type not in ["vendor", "product"]
-        ):
-            return Response(
-                {"status": "error", "message": "Invalid request"}, status=400
-            )
+        obj_type = serializer.validated_data["obj_type"]
+        obj_id = serializer.validated_data["obj_id"]
+        project_id = serializer.validated_data["project_id"]
 
-        # Проверяем, что проект принадлежит текущей организации пользователя
+        # Получаем проект и проверяем, что он принадлежит текущей организации пользователя
         project = get_object_or_404(
-            Project, id=project_id, organization=request.user_organization
+            Project, id=project_id, organization=request.user.organization
         )
 
         if obj_type == "vendor":
-            vendor = get_object_or_404(Vendor, id=obj_id)
-            project_vendors = set(project.subscriptions.get("vendors", []))
-
-            if action == "subscribe":
-                project_vendors.add(vendor.name)
-            else:
-                try:
-                    project_vendors.remove(vendor.name)
-                except KeyError:
-                    return Response(
-                        {"status": "error", "message": "Not subscribed"}, status=400
-                    )
-
-            project.subscriptions["vendors"] = list(project_vendors)
-
+            self._handle_vendor_subscription(project, obj_id, action)
         elif obj_type == "product":
-            product = get_object_or_404(Product, id=obj_id)
-            project_products = set(project.subscriptions.get("products", []))
-
-            if action == "subscribe":
-                project_products.add(product.vendored_name)
-            else:
-                try:
-                    project_products.remove(product.vendored_name)
-                except KeyError:
-                    return Response(
-                        {"status": "error", "message": "Not subscribed"}, status=400
-                    )
-
-            project.subscriptions["products"] = list(project_products)
+            self._handle_product_subscription(project, obj_id, action)
 
         project.save()
-        return Response({"status": "ok"})
+
+        # Возвращаем информацию о текущих подписках проекта
+        return Response(self._get_project_subscriptions(project))
+
+    def _handle_vendor_subscription(self, project, vendor_id, action):
+        vendor = get_object_or_404(Vendor, id=vendor_id)
+        project_vendors = set(project.subscriptions.get("vendors", []))
+
+        if action == "subscribe":
+            project_vendors.add(vendor.name)
+        else:
+            try:
+                project_vendors.remove(vendor.name)
+            except KeyError:
+                return Response(
+                    {"status": "error", "message": "Not subscribed"}, status=400
+                )
+
+        project.subscriptions["vendors"] = list(project_vendors)
+
+    def _handle_product_subscription(self, project, product_id, action):
+        product = get_object_or_404(Product, id=product_id)
+        project_products = set(project.subscriptions.get("products", []))
+
+        if action == "subscribe":
+            project_products.add(product.vendored_name)
+        else:
+            try:
+                project_products.remove(product.vendored_name)
+            except KeyError:
+                return Response(
+                    {"status": "error", "message": "Not subscribed"}, status=400
+                )
+
+        project.subscriptions["products"] = list(project_products)
+
+    def _get_project_subscriptions(self, project):
+        # Сериализуем информацию о подписках проекта
+        return ProjectSubscriptionsSerializer(
+            {
+                "vendors": project.subscriptions.get("vendors", []),
+                "products": project.subscriptions.get("products", []),
+            }
+        ).data

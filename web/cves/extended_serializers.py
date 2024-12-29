@@ -28,6 +28,8 @@ class ExtendedCveListSerializer(serializers.ModelSerializer):
             "cvss_score",
             "cvss_human_score",
             "humanized_title",
+            "vendors",
+            "products",
         ]
 
     def _get_cvss_data(self, instance):
@@ -57,8 +59,39 @@ class ExtendedCveListSerializer(serializers.ModelSerializer):
     def get_humanized_title(self, instance):
         """
         Возвращает человеко-читаемый заголовок.
+        Если title отсутствует, собирает его из cvss_human_score, cve_id, vendors и products.
+        Любая из частей может быть None.
         """
-        return humanize(instance.title)
+        if instance.title:
+            return humanize(instance.title)
+        else:
+            # Собираем заголовок из других полей
+            parts = []
+
+            # Добавляем cvss_human_score, если он не None
+            if instance.cvss_human_score:
+                parts.append(f"CVSS: {instance.cvss_human_score}")
+
+            # Добавляем cve_id, если он не None
+            if instance.cve_id:
+                parts.append(f"CVE: {instance.cve_id}")
+
+            # Добавляем vendors, если они не None и не пустые
+            if instance.vendors:
+                vendors = ", ".join(instance.vendors)
+                parts.append(f"Vendors: {vendors}")
+
+            # Добавляем products, если они не None и не пустые
+            if instance.products:
+                products = ", ".join(instance.products)
+                parts.append(f"Products: {products}")
+
+            # Если ни одно из полей не заполнено, возвращаем заглушку
+            if not parts:
+                return "No title available"
+
+            # Соединяем части в одну строку
+            return " ".join(parts)
 
 
 class ExtendedCveDetailSerializer(serializers.ModelSerializer):
@@ -113,3 +146,14 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer):
             ).first()
             return cve_tags.tags if cve_tags else []
         return []
+
+
+class SubscriptionSerializer(serializers.Serializer):
+    obj_type = serializers.ChoiceField(choices=["vendor", "product"])
+    obj_id = serializers.UUIDField()
+    project_id = serializers.UUIDField()
+
+
+class ProjectSubscriptionsSerializer(serializers.Serializer):
+    vendors = serializers.ListField(child=serializers.CharField())
+    products = serializers.ListField(child=serializers.CharField())
