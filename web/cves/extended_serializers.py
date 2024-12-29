@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from cves.models import Cve
+from cves.models import Cve, Product, Vendor
 from cves.utils import humanize, get_metric_from_vector
 from cves.templatetags.opencve_extras import cvss_human_score, cvss_level
 from cves.constants import (
@@ -17,6 +17,7 @@ class ExtendedCveListSerializer(serializers.ModelSerializer):
     cvss_score = serializers.SerializerMethodField()
     cvss_human_score = serializers.SerializerMethodField()
     humanized_title = serializers.SerializerMethodField()
+    products = serializers.SerializerMethodField()
 
     class Meta:
         model = Cve
@@ -93,6 +94,20 @@ class ExtendedCveListSerializer(serializers.ModelSerializer):
             # Соединяем части в одну строку
             return " ".join(parts)
 
+    def get_products(self, instance):
+        """
+        Возвращает список продуктов, связанных с CVE через вендоров.
+        """
+        products = []
+        for vendor_name in instance.vendors:
+            # Находим вендора по имени
+            vendor = Vendor.objects.filter(name=vendor_name).first()
+            if vendor:
+                # Находим все продукты для этого вендора
+                vendor_products = Product.objects.filter(vendor=vendor)
+                products.extend([product.vendored_name for product in vendor_products])
+        return products
+
 
 class ExtendedCveDetailSerializer(serializers.ModelSerializer):
     humanized_title = serializers.SerializerMethodField()
@@ -101,6 +116,7 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer):
     redhat_json = serializers.SerializerMethodField()
     vulnrichment_json = serializers.SerializerMethodField()
     tags = serializers.SerializerMethodField()
+    products = serializers.SerializerMethodField()
 
     class Meta:
         model = Cve
@@ -114,6 +130,7 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer):
             "metrics",
             "weaknesses",
             "vendors",
+            "products",
             "nvd_json",
             "mitre_json",
             "redhat_json",
@@ -146,6 +163,20 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer):
             ).first()
             return cve_tags.tags if cve_tags else []
         return []
+
+    def get_products(self, instance):
+        """
+        Возвращает список продуктов, связанных с CVE через вендоров.
+        """
+        products = []
+        for vendor_name in instance.vendors:
+            # Находим вендора по имени
+            vendor = Vendor.objects.filter(name=vendor_name).first()
+            if vendor:
+                # Находим все продукты для этого вендора
+                vendor_products = Product.objects.filter(vendor=vendor)
+                products.extend([product.vendored_name for product in vendor_products])
+        return products
 
 
 class SubscriptionSerializer(serializers.Serializer):
