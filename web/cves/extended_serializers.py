@@ -69,9 +69,10 @@ class ExtendedCveListSerializer(serializers.ModelSerializer):
             # Собираем заголовок из других полей
             parts = []
 
-            # Добавляем cvss_human_score, если он не None
-            if instance.cvss_human_score:
-                parts.append(f"CVSS: {instance.cvss_human_score}")
+            # Используем метод get_cvss_human_score для получения cvss_human_score
+            cvss_human_score = self.get_cvss_human_score(instance)
+            if cvss_human_score:
+                parts.append(f"CVSS: {cvss_human_score}")
 
             # Добавляем cve_id, если он не None
             if instance.cve_id:
@@ -83,9 +84,9 @@ class ExtendedCveListSerializer(serializers.ModelSerializer):
                 parts.append(f"Vendors: {vendors}")
 
             # Добавляем products, если они не None и не пустые
-            if instance.products:
-                products = ", ".join(instance.products)
-                parts.append(f"Products: {products}")
+            products = self.get_products(instance)
+            if products:
+                parts.append(f"Products: {', '.join(products)}")
 
             # Если ни одно из полей не заполнено, возвращаем заглушку
             if not parts:
