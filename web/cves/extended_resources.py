@@ -15,8 +15,9 @@ from .extended_serializers import (
     ProjectSubscriptionsSerializer,
     SubscriptionSerializer,
 )
-from .extended_utils import extended_list_filtered_cves
+from .extended_utils import extended_list_filtered_cves, get_products
 from opencve.utils import is_valid_uuid
+from cves.utils import list_to_dict_vendors
 
 
 class ExtendedCveViewSet(viewsets.ReadOnlyModelViewSet):
@@ -37,6 +38,16 @@ class ExtendedCveViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_serializer_class(self):
         return self.serializer_classes.get(self.action, self.serializer_class)
+
+    def list(self, request, *args, **kwargs):
+        response = super().list(request, *args, **kwargs)
+
+        # Добавляем структурированные данные в ответ
+        for cve_data in response.data:
+            cve_data["vendors"] = list_to_dict_vendors(cve_data["vendors"])
+            cve_data["products"] = get_products(cve_data["vendors"])
+
+        return response
 
 
 class ExtendedWeaknessViewSet(viewsets.ReadOnlyModelViewSet):
@@ -61,7 +72,7 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
     lookup_url_kwarg = "name"
 
     def get_queryset(self):
-        vendor = get_object_or_404(Vendor, name=self.kwargs["name"])
+        vendor = get_object_or_404(Vendor, name=self.kwargs["vendor_name"])
         return Product.objects.filter(vendor=vendor).order_by("name").all()
 
 

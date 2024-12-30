@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from cves.models import Cve, Product, Vendor
 from cves.utils import humanize, get_metric_from_vector
+from .extended_utils import get_humanized_title
 from cves.templatetags.opencve_extras import cvss_human_score, cvss_level
 from cves.constants import (
     CVSS_CHART_BACKGROUNDS,
@@ -60,40 +61,12 @@ class ExtendedCveListSerializer(serializers.ModelSerializer):
     def get_humanized_title(self, instance):
         """
         Возвращает человеко-читаемый заголовок.
-        Если title отсутствует, собирает его из cvss_human_score, cve_id, vendors и products.
-        Любая из частей может быть None.
         """
-        if instance.title:
-            return humanize(instance.title)
-        else:
-            # Собираем заголовок из других полей
-            parts = []
-
-            # Используем метод get_cvss_human_score для получения cvss_human_score
-            cvss_human_score = self.get_cvss_human_score(instance)
-            if cvss_human_score:
-                parts.append(f"CVSS: {cvss_human_score}")
-
-            # Добавляем cve_id, если он не None
-            if instance.cve_id:
-                parts.append(f"CVE: {instance.cve_id}")
-
-            # Добавляем vendors, если они не None и не пустые
-            if instance.vendors:
-                vendors = ", ".join(instance.vendors)
-                parts.append(f"Vendors: {vendors}")
-
-            # Добавляем products, если они не None и не пустые
-            products = self.get_products(instance)
-            if products:
-                parts.append(f"Products: {', '.join(products)}")
-
-            # Если ни одно из полей не заполнено, возвращаем заглушку
-            if not parts:
-                return "No title available"
-
-            # Соединяем части в одну строку
-            return " ".join(parts)
+        return get_humanized_title(
+            cvss_human_score=self.get_cvss_human_score(instance),
+            cve_id=instance.cve_id,
+            vendors=instance.vendors,
+        )
 
     def get_products(self, instance):
         """
@@ -140,7 +113,14 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer):
         ]
 
     def get_humanized_title(self, instance):
-        return humanize(instance.title)
+        """
+        Возвращает человеко-читаемый заголовок.
+        """
+        return get_humanized_title(
+            cvss_human_score=self.get_cvss_human_score(instance),
+            cve_id=instance.cve_id,
+            vendors=instance.vendors,
+        )
 
     def get_nvd_json(self, instance):
         return instance.nvd_json
