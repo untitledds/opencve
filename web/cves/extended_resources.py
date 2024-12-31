@@ -1,5 +1,6 @@
 from rest_framework import mixins, viewsets, permissions
 import logging
+import json
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.shortcuts import get_object_or_404
@@ -48,9 +49,24 @@ class ExtendedCveViewSet(viewsets.ReadOnlyModelViewSet):
     def list(self, request, *args, **kwargs):
         response = super().list(request, *args, **kwargs)
 
-        # Добавляем структурированные данные в ответ
         for cve_data in response.data:
             logger.debug(f"Processing CVE: {cve_data}")
+            logger.debug(f"Type of cve_data: {type(cve_data)}")
+
+            # Если cve_data — строка, десериализуем её
+            if isinstance(cve_data, str):
+                try:
+                    cve_data = json.loads(cve_data)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Invalid JSON data: {e}")
+                    continue
+
+            # Проверка структуры данных
+            if not isinstance(cve_data, dict) or "vendors" not in cve_data:
+                logger.warning(f"Invalid data format for CVE: {cve_data}")
+                continue
+
+            # Обработка данных
             if isinstance(cve_data["vendors"], list) and all(
                 isinstance(v, str) for v in cve_data["vendors"]
             ):
@@ -58,7 +74,7 @@ class ExtendedCveViewSet(viewsets.ReadOnlyModelViewSet):
                 cve_data["products"] = get_products(cve_data["vendors"])
             else:
                 logger.warning(
-                    f"Invalid vendors format for CVE {cve_data['cve_id']}: {cve_data['vendors']}"
+                    f"Invalid vendors format for CVE {cve_data.get('cve_id')}: {cve_data.get('vendors')}"
                 )
                 cve_data["vendors"] = (
                     {}
