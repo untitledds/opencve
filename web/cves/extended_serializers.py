@@ -1,8 +1,7 @@
 from rest_framework import serializers
 from cves.models import Cve, Product, Vendor
-from cves.utils import humanize, get_metric_from_vector
-from .extended_utils import get_humanized_title
-from cves.templatetags.opencve_extras import cvss_human_score, cvss_level
+from .extended_mixins import CveProductsMixin
+from cves.serializers import Vendor, Product
 from cves.constants import (
     CVSS_CHART_BACKGROUNDS,
     CVSS_HUMAN_SCORE,
@@ -14,7 +13,7 @@ from cves.constants import (
 CVSS_FIELDS = ["cvssV4_0", "cvssV3_1", "cvssV3_0", "cvssV2_0"]
 
 
-class ExtendedCveListSerializer(serializers.ModelSerializer):
+class ExtendedCveListSerializer(serializers.ModelSerializer, CveProductsMixin):
     cvss_score = serializers.SerializerMethodField()
     cvss_human_score = serializers.SerializerMethodField()
     humanized_title = serializers.SerializerMethodField()
@@ -34,16 +33,6 @@ class ExtendedCveListSerializer(serializers.ModelSerializer):
             "products",
         ]
 
-    def _get_cvss_data(self, instance):
-        """
-        Возвращает данные CVSS из первой доступной версии.
-        """
-        for field in CVSS_FIELDS:
-            cvss = instance.metrics.get(field, {}).get("data", {})
-            if cvss and "score" in cvss:
-                return cvss
-        return None
-
     def get_cvss_score(self, instance):
         """
         Возвращает CVSS score из первой доступной версии CVSS.
@@ -51,39 +40,8 @@ class ExtendedCveListSerializer(serializers.ModelSerializer):
         cvss = self._get_cvss_data(instance)
         return cvss["score"] if cvss else None
 
-    def get_cvss_human_score(self, instance):
-        """
-        Возвращает человеко-читаемый уровень CVSS (например, "High", "Critical").
-        """
-        cvss = self._get_cvss_data(instance)
-        return cvss_human_score(cvss["score"]).title() if cvss else None
 
-    def get_humanized_title(self, instance):
-        """
-        Возвращает человеко-читаемый заголовок.
-        """
-        return get_humanized_title(
-            cvss_human_score=self.get_cvss_human_score(instance),
-            cve_id=instance.cve_id,
-            vendors=instance.vendors,
-        )
-
-    def get_products(self, instance):
-        """
-        Возвращает список продуктов, связанных с CVE через вендоров.
-        """
-        products = []
-        for vendor_name in instance.vendors:
-            # Находим вендора по имени
-            vendor = Vendor.objects.filter(name=vendor_name).first()
-            if vendor:
-                # Находим все продукты для этого вендора
-                vendor_products = Product.objects.filter(vendor=vendor)
-                products.extend([product.vendored_name for product in vendor_products])
-        return products
-
-
-class ExtendedCveDetailSerializer(serializers.ModelSerializer):
+class ExtendedCveDetailSerializer(serializers.ModelSerializer, CveProductsMixin):
     humanized_title = serializers.SerializerMethodField()
     nvd_json = serializers.SerializerMethodField()
     mitre_json = serializers.SerializerMethodField()
@@ -112,16 +70,6 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer):
             "tags",
         ]
 
-    def get_humanized_title(self, instance):
-        """
-        Возвращает человеко-читаемый заголовок.
-        """
-        return get_humanized_title(
-            cvss_human_score=self.get_cvss_human_score(instance),
-            cve_id=instance.cve_id,
-            vendors=instance.vendors,
-        )
-
     def get_nvd_json(self, instance):
         return instance.nvd_json
 
@@ -145,19 +93,6 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer):
             return cve_tags.tags if cve_tags else []
         return []
 
-    def get_products(self, instance):
-        """
-        Возвращает список продуктов, связанных с CVE через вендоров.
-        """
-        products = []
-        for vendor_name in instance.vendors:
-            # Находим вендора по имени
-            vendor = Vendor.objects.filter(name=vendor_name).first()
-            if vendor:
-                # Находим все продукты для этого вендора
-                vendor_products = Product.objects.filter(vendor=vendor)
-                products.extend([product.vendored_name for product in vendor_products])
-        return products
 
 
 class SubscriptionSerializer(serializers.Serializer):
@@ -169,3 +104,21 @@ class SubscriptionSerializer(serializers.Serializer):
 class ProjectSubscriptionsSerializer(serializers.Serializer):
     vendors = serializers.ListField(child=serializers.CharField())
     products = serializers.ListField(child=serializers.CharField())
+
+class VendorSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Vendor
+        fields = ["id", "name"]
+
+class ProductSerializer(serializers.ModelSerializer):
+    vendor = VendorSerializer()
+
+    class Meta:
+        model = Product
+        fields = ["id", "name", "vendor"]
+
+class DetailedSubscriptionSerializer(serializers.Serializer):
+    project_id = serializers.UUIDField(help_text="UUID проекта.")
+    subscriptions = ProjectSubscriptionsSerializer(help_text="Подписки проекта.")
+    vendor_details = VendorSerializer(many=True, read_only=True)
+    product_details = ProductSerializer(many=True, read_only=True)

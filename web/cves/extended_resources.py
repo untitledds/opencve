@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.shortcuts import get_object_or_404
 from cves.models import Cve, Vendor, Product, Weakness
+from .extended_utils import get_detailed_subscriptions
 from projects.models import Project
 from cves.serializers import (
     VendorListSerializer,
@@ -14,6 +15,7 @@ from .extended_serializers import (
     ExtendedCveDetailSerializer,
     ProjectSubscriptionsSerializer,
     SubscriptionSerializer,
+    DetailedSubscriptionSerializer,
 )
 from .extended_utils import extended_list_filtered_cves, get_products
 from opencve.utils import is_valid_uuid
@@ -75,12 +77,9 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
         vendor = get_object_or_404(Vendor, name=self.kwargs["vendor_name"])
         return Product.objects.filter(vendor=vendor).order_by("name").all()
 
-
 class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
     permission_classes = [permissions.IsAuthenticated]
-    serializer_class = (
-        SubscriptionSerializer  # Указываем сериализатор для входных данных
-    )
+    serializer_class = SubscriptionSerializer
 
     @action(detail=False, methods=["post"])
     def subscribe(self, request):
@@ -96,8 +95,71 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
         """
         return self._handle_subscription(request, "unsubscribe")
 
+    @action(detail=False, methods=["get"])
+    def project_subscriptions(self, request):
+        """
+        Получить подписки проекта.
+        """
+        project = self._get_project(request)
+        subscriptions = self._get_subscriptions(project=project)
+
+        if not subscriptions["vendors"] and not subscriptions["products"]:
+            return self._return_response({}, error_message="No subscriptions found for this project")
+
+        return self._return_response(subscriptions)
+
+    @action(detail=False, methods=["get"])
+    def check_user_in_project(self, request):
+        """
+        Проверить, принадлежит ли пользователь к проекту.
+        """
+        project_id = request.query_params.get("project_id")
+        project = get_object_or_404(Project, id=project_id)
+        is_member = project.organization == request.user.organization
+
+        if not is_member:
+            return self._return_response({}, error_message="User is not a member of this project")
+
+        return self._return_response({"is_member": True}, success_message="User is a member of this project")
+
+    @action(detail=False, methods=["get"])
+    def user_subscriptions(self, request):
+        """
+        Получить все подписки пользователя.
+        """
+        projects = Project.objects.filter(organization=request.user.organization)
+        subscriptions = self._get_subscriptions(projects=projects)
+
+        if not subscriptions["vendors"] and not subscriptions["products"]:
+            return self._return_response({}, error_message="No subscriptions found for this user")
+
+        return self._return_response({
+            "vendors": list(subscriptions["vendors"]),
+            "products": list(subscriptions["products"])
+        })
+
+    @action(detail=False, methods=["get"])
+    def detailed_project_subscriptions(self, request):
+        """
+        Получить детальную информацию о подписках проекта.
+        """
+        project = self._get_project(request)
+        detailed_subscriptions = get_detailed_subscriptions(project)
+
+        if not detailed_subscriptions["subscriptions"]["vendors"] and not detailed_subscriptions["subscriptions"]["products"]:
+            return self._return_response({}, error_message="No detailed subscriptions found for this project")
+
+        # Сериализуем данные с помощью DetailedSubscriptionSerializer
+        serialized_data = DetailedSubscriptionSerializer(detailed_subscriptions).data
+        return self._return_response(serialized_data)
+
     def _handle_subscription(self, request, action):
-        # Валидируем входные данные с помощью сериализатора
+        """
+        Обрабатывает подписку или отписку на вендора или продукта.
+        :param request: Запрос от клиента.
+        :param action: Действие ("subscribe" или "unsubscribe").
+        :return: Ответ с измененными подписками или ошибкой.
+        """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -105,58 +167,121 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
         obj_id = serializer.validated_data["obj_id"]
         project_id = serializer.validated_data["project_id"]
 
-        # Получаем проект и проверяем, что он принадлежит текущей организации пользователя
-        project = get_object_or_404(
-            Project, id=project_id, organization=request.user.organization
-        )
+        project = self._get_project_by_id(project_id)
+        return self._process_subscription(project, obj_id, obj_type, action)
 
+    def _process_subscription(self, project, obj_id, obj_type, action):
+        """
+        Выполняет логику подписки/отписки на вендора или продукта.
+        :param project: Проект, для которого выполняется действие.
+        :param obj_id: UUID объекта (вендора или продукта).
+        :param obj_type: Тип объекта ("vendor" или "product").
+        :param action: Действие ("subscribe" или "unsubscribe").
+        :return: Ответ с измененными подписками и статусом операции.
+        """
         if obj_type == "vendor":
-            self._handle_vendor_subscription(project, obj_id, action)
+            key = "vendors"
+            obj = get_object_or_404(Vendor, id=obj_id)
+            obj_name = obj.name
         elif obj_type == "product":
-            self._handle_product_subscription(project, obj_id, action)
+            key = "products"
+            obj = get_object_or_404(Product, id=obj_id)
+            obj_name = obj.vendored_name
+        else:
+            return self._return_response({}, error_message="Invalid object type")
 
+        subscriptions = set(project.subscriptions.get(key, []))
+
+        if action == "subscribe":
+            subscriptions.add(obj_name)
+            message = f"{obj_type.capitalize()} {obj_name} subscribed successfully"
+        else:
+            if obj_name not in subscriptions:
+                return self._return_response({}, error_message=f"Not subscribed to this {obj_type}")
+            subscriptions.remove(obj_name)
+            message = f"{obj_type.capitalize()} {obj_name} unsubscribed successfully"
+
+        project.subscriptions[key] = list(subscriptions)
         project.save()
 
-        # Возвращаем информацию о текущих подписках проекта
-        return Response(self._get_project_subscriptions(project))
-
-    def _handle_vendor_subscription(self, project, vendor_id, action):
-        vendor = get_object_or_404(Vendor, id=vendor_id)
-        project_vendors = set(project.subscriptions.get("vendors", []))
-
-        if action == "subscribe":
-            project_vendors.add(vendor.name)
-        else:
-            try:
-                project_vendors.remove(vendor.name)
-            except KeyError:
-                return Response(
-                    {"status": "error", "message": "Not subscribed"}, status=400
-                )
-
-        project.subscriptions["vendors"] = list(project_vendors)
-
-    def _handle_product_subscription(self, project, product_id, action):
-        product = get_object_or_404(Product, id=product_id)
-        project_products = set(project.subscriptions.get("products", []))
-
-        if action == "subscribe":
-            project_products.add(product.vendored_name)
-        else:
-            try:
-                project_products.remove(product.vendored_name)
-            except KeyError:
-                return Response(
-                    {"status": "error", "message": "Not subscribed"}, status=400
-                )
-
-        project.subscriptions["products"] = list(project_products)
+        return self._return_response({
+            "subscriptions": self._get_project_subscriptions(project),
+            "message": message,
+        })
 
     def _get_project_subscriptions(self, project):
-        # Сериализуем информацию о подписках проекта
-        return ProjectSubscriptionsSerializer(
-            {
-                "vendors": project.subscriptions.get("vendors", []),
-                "products": project.subscriptions.get("products", []),
-            }
-        ).data
+        """
+        Возвращает информацию о текущих подписках проекта.
+        :param project: Проект, для которого возвращаются подписки.
+        :return: Сериализованные данные о подписках.
+        """
+        subscriptions = {
+            "vendors": project.subscriptions.get("vendors", []),
+            "products": project.subscriptions.get("products", []),
+        }
+
+        if not subscriptions["vendors"] and not subscriptions["products"]:
+            return {"message": "No subscriptions found for this project"}
+
+        return ProjectSubscriptionsSerializer(subscriptions).data
+
+    def _get_project(self, request):
+        """
+        Получает проект по project_id из запроса и проверяет, принадлежит ли он организации пользователя.
+        :param request: Запрос от клиента.
+        :return: Проект.
+        """
+        project_id = request.query_params.get("project_id")
+        return self._get_project_by_id(project_id)
+
+    def _get_project_by_id(self, project_id):
+        """
+        Получает проект по project_id и проверяет, принадлежит ли он организации пользователя.
+        :param project_id: UUID проекта.
+        :return: Проект.
+        """
+        return get_object_or_404(
+            Project, id=project_id, organization=self.request.user.organization
+        )
+
+    def _get_subscriptions(self, project=None, projects=None):
+        """
+        Возвращает подписки для проекта или списка проектов.
+        :param project: Проект, для которого возвращаются подписки.
+        :param projects: Список проектов, для которых возвращаются подписки.
+        :return: Словарь с подписками.
+        """
+        subscriptions = {
+            "vendors": set(),
+            "products": set()
+        }
+
+        if project:
+            project_vendors = project.subscriptions.get("vendors", [])
+            project_products = project.subscriptions.get("products", [])
+            subscriptions["vendors"].update(project_vendors)
+            subscriptions["products"].update(project_products)
+        elif projects:
+            for project in projects:
+                project_vendors = project.subscriptions.get("vendors", [])
+                project_products = project.subscriptions.get("products", [])
+                subscriptions["vendors"].update(project_vendors)
+                subscriptions["products"].update(project_products)
+
+        return subscriptions
+
+    def _return_response(self, data, success_message=None, error_message=None):
+        """
+        Возвращает Response с данными или сообщением об ошибке.
+        :param data: Данные для возврата.
+        :param success_message: Сообщение об успешной операции.
+        :param error_message: Сообщение об ошибке.
+        :return: Response.
+        """
+        if error_message:
+            return Response({"status": "error", "message": error_message}, status=400)
+
+        if success_message:
+            data["message"] = success_message
+
+        return Response({"status": "success", **data})
