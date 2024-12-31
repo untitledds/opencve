@@ -15,13 +15,14 @@ class CveProductsMixin:
         :return: Список продуктов.
         """
         products = []
-        for vendor_name in instance.vendors:
-            # Находим вендора по имени
-            vendor = Vendor.objects.filter(name=vendor_name).first()
-            if vendor:
-                # Находим все продукты для этого вендора
-                vendor_products = Product.objects.filter(vendor=vendor)
-                products.extend([product.vendored_name for product in vendor_products])
+        vendor_names = instance.vendors
+        vendors = Vendor.objects.filter(name__in=vendor_names).prefetch_related(
+            "product_set"
+        )
+        for vendor in vendors:
+            products.extend(
+                [product.vendored_name for product in vendor.product_set.all()]
+            )
         return products
 
     def get_humanized_title(self, instance):

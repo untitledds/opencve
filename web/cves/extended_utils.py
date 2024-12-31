@@ -2,6 +2,7 @@ from django.db.models import Q
 from django.utils import timezone
 from cves.utils import list_filtered_cves, list_to_dict_vendors
 from cves.models import Vendor, Product
+from organizations.models import Membership
 
 
 def extended_list_filtered_cves(params, user):
@@ -117,3 +118,13 @@ def get_detailed_subscriptions(project):
             for product in products
         ],
     }
+
+
+def get_user_organization(user):
+    """
+    Возвращает организацию пользователя.
+    :param user: Объект пользователя.
+    :return: Организация пользователя или None.
+    """
+    membership = Membership.objects.filter(user=user).first()
+    return membership.organization if membership else None

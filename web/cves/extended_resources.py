@@ -3,8 +3,9 @@ import logging
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.shortcuts import get_object_or_404
+from django.http import Http404
 from cves.models import Cve, Vendor, Product, Weakness
-from .extended_utils import get_detailed_subscriptions
+from .extended_utils import get_detailed_subscriptions, get_user_organization
 from projects.models import Project
 from cves.serializers import (
     VendorListSerializer,
@@ -49,7 +50,7 @@ class ExtendedCveViewSet(viewsets.ReadOnlyModelViewSet):
 
         # Добавляем структурированные данные в ответ
         for cve_data in response.data:
-            logger.debug(f"Processing CVE: {cve_data['cve_id']}")
+            logger.debug(f"Processing CVE: {cve_data}")
             if isinstance(cve_data["vendors"], list) and all(
                 isinstance(v, str) for v in cve_data["vendors"]
             ):
@@ -133,23 +134,29 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
         """
         project_id = request.query_params.get("project_id")
         project = get_object_or_404(Project, id=project_id)
-        is_member = project.organization == request.user.organization
 
-        if not is_member:
+        organization = get_user_organization(request.user)
+        if not organization:
             return self._return_response(
-                {}, error_message="User is not a member of this project"
+                {"is_member": False},
+                error_message="User is not a member of any organization",
             )
 
-        return self._return_response(
-            {"is_member": True}, success_message="User is a member of this project"
-        )
+        is_member = project.organization == organization
+        return self._return_response({"is_member": is_member})
 
     @action(detail=False, methods=["get"])
     def user_subscriptions(self, request):
         """
         Получить все подписки пользователя.
         """
-        projects = Project.objects.filter(organization=request.user.organization)
+        organization = get_user_organization(request.user)
+        if not organization:
+            return self._return_response(
+                {}, error_message="User is not a member of any organization"
+            )
+
+        projects = Project.objects.filter(organization=organization)
         subscriptions = self._get_subscriptions(projects=projects)
 
         if not subscriptions["vendors"] and not subscriptions["products"]:
@@ -275,9 +282,12 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
         :param project_id: UUID проекта.
         :return: Проект.
         """
-        return get_object_or_404(
-            Project, id=project_id, organization=self.request.user.organization
-        )
+        organization = get_user_organization(self.request.user)
+        if not organization:
+            raise Http404("User is not a member of any organization")
+
+        project = get_object_or_404(Project, id=project_id, organization=organization)
+        return project
 
     def _get_subscriptions(self, project=None, projects=None):
         """
