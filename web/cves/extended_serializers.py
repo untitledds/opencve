@@ -33,6 +33,18 @@ class ExtendedCveListSerializer(serializers.ModelSerializer, CveProductsMixin):
             "products",
         ]
 
+    def get_vendors(self, instance):
+        """
+        Возвращает словарь вендоров и их продуктов.
+        """
+        return super().get_vendors(instance)  # Используем метод из миксина
+
+    def get_products(self, instance):
+        """
+        Возвращает список продуктов, связанных с CVE через вендоров.
+        """
+        return super().get_products(instance)  # Используем метод из миксина
+
     def get_cvss_score(self, instance):
         """
         Возвращает CVSS score из первой доступной версии CVSS.

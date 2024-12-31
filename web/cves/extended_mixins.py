@@ -1,29 +1,71 @@
 from cves.models import Vendor, Product
 from .extended_utils import get_humanized_title
 from cves.templatetags.opencve_extras import cvss_human_score
+from .utils import list_to_dict_vendors  # Импортируем утилиту
+import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class CveProductsMixin:
     """
-    Миксин для получения продуктов и генерации заголовка CVE.
+    Миксин для получения продуктов, вендоров и генерации заголовка CVE.
     """
+
+    def get_vendors(self, instance):
+        """
+        Возвращает список вендоров, связанных с CVE.
+        :param instance: Объект CVE.
+        :return: Список вендоров.
+        """
+        vendors = instance.vendors
+        if isinstance(vendors, list):
+            # Фильтруем только вендоры (строки без $PRODUCT$)
+            return [v for v in vendors if "$PRODUCT$" not in v]
+        elif isinstance(vendors, str):
+            try:
+                # Если vendors — это JSON-строка, преобразуем её в список
+                vendors_list = json.loads(vendors)
+                return [v for v in vendors_list if "$PRODUCT$" not in v]
+            except json.JSONDecodeError:
+                # Если это не JSON, возвращаем как список с одним элементом
+                logger.warning(
+                    f"Vendors is a string for CVE {instance.cve_id}: {vendors}"
+                )
+                return [vendors] if "$PRODUCT$" not in vendors else []
+        else:
+            # Возвращаем пустой список, если формат данных неизвестен
+            return []
 
     def get_products(self, instance):
         """
-        Возвращает список продуктов, связанных с CVE через вендоров.
+        Возвращает список продуктов, связанных с CVE.
         :param instance: Объект CVE.
         :return: Список продуктов.
         """
-        products = []
-        vendor_names = instance.vendors
-        vendors = Vendor.objects.filter(name__in=vendor_names).prefetch_related(
-            "product_set"
-        )
-        for vendor in vendors:
-            products.extend(
-                [product.vendored_name for product in vendor.product_set.all()]
-            )
-        return products
+        vendors = instance.vendors
+        if isinstance(vendors, list):
+            # Фильтруем только продукты (строки с $PRODUCT$)
+            products = [v.split("$PRODUCT$")[1] for v in vendors if "$PRODUCT$" in v]
+            return products
+        elif isinstance(vendors, str):
+            try:
+                # Если vendors — это JSON-строка, преобразуем её в список
+                vendors_list = json.loads(vendors)
+                products = [
+                    v.split("$PRODUCT$")[1] for v in vendors_list if "$PRODUCT$" in v
+                ]
+                return products
+            except json.JSONDecodeError:
+                # Если это не JSON, возвращаем пустой список
+                logger.warning(
+                    f"Vendors is a string for CVE {instance.cve_id}: {vendors}"
+                )
+                return [vendors.split("$PRODUCT$")[1]] if "$PRODUCT$" in vendors else []
+        else:
+            # Возвращаем пустой список, если формат данных неизвестен
+            return []
 
     def get_humanized_title(self, instance):
         """
