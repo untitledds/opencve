@@ -92,6 +92,7 @@ def get_humanized_title(cvss_human_score, cve_id, vendors):
     # Соединяем части в одну строку
     return " ".join(parts)
 
+
 def get_detailed_subscriptions(project):
     """
     Возвращает детальную информацию о подписках проекта.
@@ -108,7 +109,9 @@ def get_detailed_subscriptions(project):
             "vendors": [vendor.name for vendor in vendors],
             "products": [product.vendored_name for product in products],
         },
-        "vendor_details": [{"id": vendor.id, "name": vendor.name} for vendor in vendors],
+        "vendor_details": [
+            {"id": vendor.id, "name": vendor.name} for vendor in vendors
+        ],
         "product_details": [
             {"id": product.id, "name": product.name, "vendor": product.vendor.name}
             for product in products

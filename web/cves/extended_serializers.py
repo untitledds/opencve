@@ -94,7 +94,6 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer, CveProductsMixin)
         return []
 
 
-
 class SubscriptionSerializer(serializers.Serializer):
     obj_type = serializers.ChoiceField(choices=["vendor", "product"])
     obj_id = serializers.UUIDField()
@@ -105,10 +104,12 @@ class ProjectSubscriptionsSerializer(serializers.Serializer):
     vendors = serializers.ListField(child=serializers.CharField())
     products = serializers.ListField(child=serializers.CharField())
 
+
 class VendorSerializer(serializers.ModelSerializer):
     class Meta:
         model = Vendor
         fields = ["id", "name"]
+
 
 class ProductSerializer(serializers.ModelSerializer):
     vendor = VendorSerializer()
@@ -116,6 +117,7 @@ class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = ["id", "name", "vendor"]
+
 
 class DetailedSubscriptionSerializer(serializers.Serializer):
     project_id = serializers.UUIDField(help_text="UUID проекта.")

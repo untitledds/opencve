@@ -2,6 +2,7 @@ from cves.models import Vendor, Product
 from .extended_utils import get_humanized_title
 from cves.templatetags.opencve_extras import cvss_human_score
 
+
 class CveProductsMixin:
     """
     Миксин для получения продуктов и генерации заголовка CVE.

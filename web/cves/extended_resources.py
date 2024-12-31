@@ -77,6 +77,7 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
         vendor = get_object_or_404(Vendor, name=self.kwargs["vendor_name"])
         return Product.objects.filter(vendor=vendor).order_by("name").all()
 
+
 class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = SubscriptionSerializer
@@ -104,7 +105,9 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
         subscriptions = self._get_subscriptions(project=project)
 
         if not subscriptions["vendors"] and not subscriptions["products"]:
-            return self._return_response({}, error_message="No subscriptions found for this project")
+            return self._return_response(
+                {}, error_message="No subscriptions found for this project"
+            )
 
         return self._return_response(subscriptions)
 
@@ -118,9 +121,13 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
         is_member = project.organization == request.user.organization
 
         if not is_member:
-            return self._return_response({}, error_message="User is not a member of this project")
+            return self._return_response(
+                {}, error_message="User is not a member of this project"
+            )
 
-        return self._return_response({"is_member": True}, success_message="User is a member of this project")
+        return self._return_response(
+            {"is_member": True}, success_message="User is a member of this project"
+        )
 
     @action(detail=False, methods=["get"])
     def user_subscriptions(self, request):
@@ -131,12 +138,16 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
         subscriptions = self._get_subscriptions(projects=projects)
 
         if not subscriptions["vendors"] and not subscriptions["products"]:
-            return self._return_response({}, error_message="No subscriptions found for this user")
+            return self._return_response(
+                {}, error_message="No subscriptions found for this user"
+            )
 
-        return self._return_response({
-            "vendors": list(subscriptions["vendors"]),
-            "products": list(subscriptions["products"])
-        })
+        return self._return_response(
+            {
+                "vendors": list(subscriptions["vendors"]),
+                "products": list(subscriptions["products"]),
+            }
+        )
 
     @action(detail=False, methods=["get"])
     def detailed_project_subscriptions(self, request):
@@ -146,8 +157,13 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
         project = self._get_project(request)
         detailed_subscriptions = get_detailed_subscriptions(project)
 
-        if not detailed_subscriptions["subscriptions"]["vendors"] and not detailed_subscriptions["subscriptions"]["products"]:
-            return self._return_response({}, error_message="No detailed subscriptions found for this project")
+        if (
+            not detailed_subscriptions["subscriptions"]["vendors"]
+            and not detailed_subscriptions["subscriptions"]["products"]
+        ):
+            return self._return_response(
+                {}, error_message="No detailed subscriptions found for this project"
+            )
 
         # Сериализуем данные с помощью DetailedSubscriptionSerializer
         serialized_data = DetailedSubscriptionSerializer(detailed_subscriptions).data
@@ -197,17 +213,21 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
             message = f"{obj_type.capitalize()} {obj_name} subscribed successfully"
         else:
             if obj_name not in subscriptions:
-                return self._return_response({}, error_message=f"Not subscribed to this {obj_type}")
+                return self._return_response(
+                    {}, error_message=f"Not subscribed to this {obj_type}"
+                )
             subscriptions.remove(obj_name)
             message = f"{obj_type.capitalize()} {obj_name} unsubscribed successfully"
 
         project.subscriptions[key] = list(subscriptions)
         project.save()
 
-        return self._return_response({
-            "subscriptions": self._get_project_subscriptions(project),
-            "message": message,
-        })
+        return self._return_response(
+            {
+                "subscriptions": self._get_project_subscriptions(project),
+                "message": message,
+            }
+        )
 
     def _get_project_subscriptions(self, project):
         """
@@ -251,10 +271,7 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
         :param projects: Список проектов, для которых возвращаются подписки.
         :return: Словарь с подписками.
         """
-        subscriptions = {
-            "vendors": set(),
-            "products": set()
-        }
+        subscriptions = {"vendors": set(), "products": set()}
 
         if project:
             project_vendors = project.subscriptions.get("vendors", [])
