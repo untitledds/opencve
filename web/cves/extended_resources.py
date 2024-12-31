@@ -1,4 +1,5 @@
 from rest_framework import mixins, viewsets, permissions
+import logging
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.shortcuts import get_object_or_404
@@ -20,6 +21,8 @@ from .extended_serializers import (
 from .extended_utils import extended_list_filtered_cves, get_products
 from opencve.utils import is_valid_uuid
 from cves.utils import list_to_dict_vendors
+
+logger = logging.getLogger(__name__)
 
 
 class ExtendedCveViewSet(viewsets.ReadOnlyModelViewSet):
@@ -46,8 +49,20 @@ class ExtendedCveViewSet(viewsets.ReadOnlyModelViewSet):
 
         # Добавляем структурированные данные в ответ
         for cve_data in response.data:
-            cve_data["vendors"] = list_to_dict_vendors(cve_data["vendors"])
-            cve_data["products"] = get_products(cve_data["vendors"])
+            logger.debug(f"Processing CVE: {cve_data['cve_id']}")
+            if isinstance(cve_data["vendors"], list) and all(
+                isinstance(v, str) for v in cve_data["vendors"]
+            ):
+                cve_data["vendors"] = list_to_dict_vendors(cve_data["vendors"])
+                cve_data["products"] = get_products(cve_data["vendors"])
+            else:
+                logger.warning(
+                    f"Invalid vendors format for CVE {cve_data['cve_id']}: {cve_data['vendors']}"
+                )
+                cve_data["vendors"] = (
+                    {}
+                )  # Возвращаем пустой словарь, если данные некорректны
+                cve_data["products"] = []  # Возвращаем пустой список продуктов
 
         return response
 
