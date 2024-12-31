@@ -145,6 +145,9 @@
   .nav-tabs-primary > .nav-tabs > li.active {
     border-top-color: #090031;
   }
+  .nav-tabs-primary > .nav-tabs > li.header {
+    font-size: 16px;
+  }
   .nav-tabs-profile > .nav-tabs > li.active {
     border-top: 0px;
     border-bottom: 3px solid #090031;
@@ -186,6 +189,10 @@
 .label-cvss {
   text-align: right;
   margin-left: 10px;
+}
+
+.cvss-radar {
+    height: 200px;
 }
 
 .table .td-ellipsis {
