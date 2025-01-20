@@ -219,9 +219,12 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
 
         obj_type = serializer.validated_data["obj_type"]
         obj_id = serializer.validated_data["obj_id"]
-        project_id = serializer.validated_data["project_id"]
-        project_name = serializer.validated_data.get("project_name")
-        org_name = serializer.validated_data.get("org_name")
+        # Безопасное получение project_id, project_name и org_name
+        project_id = serializer.validated_data.get("project_id")  # Используем .get()
+        project_name = serializer.validated_data.get(
+            "project_name"
+        )  # Используем .get()
+        org_name = serializer.validated_data.get("org_name")  # Используем .get()
         if project_id:
             project = self._get_project_by_id(project_id)
         elif project_name and org_name:
