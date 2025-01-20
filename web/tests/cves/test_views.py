@@ -69,6 +69,23 @@ def test_list_cves_with_sensitive_tags(create_cve, create_user, auth_client):
     assert find_cves(f"{reverse('cves')}?tag=BAR") == ["CVE-2024-31331"]
 
 
+@override_settings(ENABLE_ONBOARDING=False)
+def test_list_cves_with_null_characters(db, create_cve, client):
+    create_cve("CVE-2022-22965")
+
+    response = client.get(f"{reverse('cves')}?vendor=oracle")
+    assert response.status_code == 200
+
+    response = client.get(f"{reverse('cves')}?vendor=oracle%00")
+    assert response.status_code == 404
+
+    response = client.get(f"{reverse('cves')}?search=foo%00bar")
+    assert response.status_code == 404
+
+    response = client.get(f"{reverse('cves')}?weakness%00=cwe-1234")
+    assert response.status_code == 404
+
+
 urls_to_check = {
     "cves": [
         reverse("cves"),
@@ -127,3 +144,15 @@ def test_cve_detail_title(
         soup.find("meta", {"name": "description"})["content"]
         == "In setMimeGroup of PackageManagerService.java, there is a possible way to hide the service from Settings due to a logic error in the code. This could lead to local escalation of privilege with User execution privileges needed. User interaction is needed for exploitation."
     )
+
+
+def test_statistics(create_variable, client):
+    create_variable("statistics_one", {"foo": 1000})
+    create_variable("statistics_two", {"bar": 2000})
+    create_variable("statistics_cves_count_last_days", {"7_days": {}})
+
+    response = client.get(reverse("statistics"))
+    assert response.status_code == 200
+    assert b'STATISTICS_ONE = {"foo": 1000};' in response.content
+    assert b'STATISTICS_TWO = {"bar": 2000};' in response.content
+    assert b"STATISTICS_CVES_COUNT_LAST_DAYS" not in response.content

@@ -9,6 +9,7 @@
         <meta content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" name="viewport">
         <meta name="description" content="{% block meta_description %}OpenCVE is the platform for tracking and managing CVEs. Stay updated on vulnerabilities, monitor your vendors, and protect your systems with ease.{% endblock %}">
         <meta name="csrf-token" content="{{ csrf_token }}">
+        <link rel="canonical" href="{{ canonical_url }}" />
         {% include 'styles.html' %}
     </head>
     <body class="hold-transition skin-blue skin-opencve sidebar-mini">
@@ -80,6 +81,7 @@
                         <li class="{% is_active_link 'cves' 'cve' 'change' %}"><a href="{% url 'cves' %}"><i class="fa fa-shield"></i> <span>Vulnerabilities</span></a></li>
                         <li class="{% is_active_link 'vendors' 'subscribe' %}"><a href="{% url 'vendors' %}"><i class="fa fa-th-list"></i> <span> Vendors & Products</span></a></li>
                         <li class="{% is_active_link 'weaknesses' %}"><a href="{% url 'weaknesses' %}"><i class="fa fa-sitemap"></i> <span> Weaknesses</span></a></li>
+                        <li class="{% is_active_link 'statistics' %}"><a href="{% url 'statistics' %}"><i class="fa fa-bar-chart"></i> <span> Statistics</span></a></li>
                         {% if user.is_authenticated %}
                         <li class="header">SETTINGS</li>
                         <li class="{% is_active_link 'list_organizations' 'create_organization' 'edit_organization' 'delete_organization' %}"><a href="{% url 'list_organizations' %}"><i class="fa fa-group"></i> <span> Organizations</span></a></li>
