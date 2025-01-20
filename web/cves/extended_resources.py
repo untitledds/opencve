@@ -244,7 +244,6 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
                 error_message="Either project_id or project_name and org_name must be provided",
             )
 
-        project = self._get_project_by_id(project_id)
         return self._process_subscription(project, obj_id, obj_type, action)
 
     def _process_subscription(self, project, obj_id, obj_type, action):
