@@ -220,6 +220,25 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
         obj_type = serializer.validated_data["obj_type"]
         obj_id = serializer.validated_data["obj_id"]
         project_id = serializer.validated_data["project_id"]
+        project_name = serializer.validated_data.get("project_name")
+        org_name = serializer.validated_data.get("org_name")
+        if project_id:
+            project = self._get_project_by_id(project_id)
+        elif project_name and org_name:
+            # Если project_id не указан, но есть имя проекта и организации, ищем проект по ним
+            organization = get_user_organization(request.user)
+            if not organization:
+                return self._return_response(
+                    {}, error_message="User is not a member of any organization"
+                )
+
+            project = get_object_or_404(
+                Project, name=project_name, organization__name=org_name, organization=organization
+            )
+        else:
+            return self._return_response(
+                {}, error_message="Either project_id or project_name and org_name must be provided"
+            )
 
         project = self._get_project_by_id(project_id)
         return self._process_subscription(project, obj_id, obj_type, action)
