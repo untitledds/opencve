@@ -233,11 +233,15 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
                 )
 
             project = get_object_or_404(
-                Project, name=project_name, organization__name=org_name, organization=organization
+                Project,
+                name=project_name,
+                organization__name=org_name,
+                organization=organization,
             )
         else:
             return self._return_response(
-                {}, error_message="Either project_id or project_name and org_name must be provided"
+                {},
+                error_message="Either project_id or project_name and org_name must be provided",
             )
 
         project = self._get_project_by_id(project_id)

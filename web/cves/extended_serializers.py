@@ -109,9 +109,13 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer, CveProductsMixin)
 class SubscriptionSerializer(serializers.Serializer):
     obj_type = serializers.ChoiceField(choices=["vendor", "product"])
     obj_id = serializers.UUIDField()
-    project_id = serializers.UUIDField()
-    project_name = serializers.CharField(required=False)  # Добавим поле для имени проекта
-    org_name = serializers.CharField(required=False)  # Добавим поле для имени организации
+    project_id = serializers.UUIDField(required=False)
+    project_name = serializers.CharField(
+        required=False
+    )  # Добавим поле для имени проекта
+    org_name = serializers.CharField(
+        required=False
+    )  # Добавим поле для имени организации
 
 
 class ProjectSubscriptionsSerializer(serializers.Serializer):
