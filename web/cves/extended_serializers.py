@@ -58,7 +58,7 @@ class ExtendedCveListSerializer(serializers.ModelSerializer, CveProductsMixin):
         """
         Возвращает title экземпляра или сгенерированный заголовок.
         """
-        return self.get_title(instance)
+        return super().get_title(instance)
 
     def get_tags(self, instance):
         if (
@@ -127,7 +127,7 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer, CveProductsMixin)
         """
         Возвращает title экземпляра или сгенерированный заголовок.
         """
-        return self.get_title(instance)
+        return super().get_title(instance)
 
 
 class SubscriptionSerializer(serializers.Serializer):
