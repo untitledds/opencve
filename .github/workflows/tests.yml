@@ -41,6 +41,12 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           architecture: x64
+      - name: Cache Python dependencies
+        id: cache-web-deps
+        uses: actions/cache@v3
+        with:
+          path: web/venv
+          key: web-deps-${{ hashFiles('web/requirements.txt') }}
       - name: Install requirements
         run: |
           cd web
@@ -60,6 +66,7 @@ jobs:
           cd web
           python manage.py check
           pytest tests/ -v
+
   tests-scheduler:
     runs-on: ubuntu-latest
     strategy:
@@ -95,6 +102,12 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           architecture: x64
+      - name: Cache Python dependencies
+        id: cache-scheduler-deps
+        uses: actions/cache@v3
+        with:
+          path: scheduler/venv
+          key: scheduler-deps-${{ hashFiles('scheduler/requirements.txt') }}
       - name: Init web database
         run: |
           cd web
@@ -120,6 +133,7 @@ jobs:
           cd scheduler
           source venv_scheduler/bin/activate
           pytest tests/ -v
+
   build-and-push:
     runs-on: ubuntu-latest
     needs: [pre-commit, tests-web, tests-scheduler]  # Запускать только после успешного прохождения тестов
@@ -145,7 +159,30 @@ jobs:
             echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
           fi
 
+      - name: Check for changes in web directory
+        id: check-web-changes
+        run: |
+          if git diff --quiet ${{ github.event.before }} ${{ github.sha }} -- web/; then
+            echo "No changes in web directory"
+            echo "web_changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changes detected in web directory"
+            echo "web_changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check for changes in scheduler directory
+        id: check-scheduler-changes
+        run: |
+          if git diff --quiet ${{ github.event.before }} ${{ github.sha }} -- scheduler/; then
+            echo "No changes in scheduler directory"
+            echo "scheduler_changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changes detected in scheduler directory"
+            echo "scheduler_changed=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build and push webserver image
+        if: steps.check-web-changes.outputs.web_changed == 'true'
         run: |
           cd web  # Переход в папку web
           docker build \
@@ -154,6 +191,7 @@ jobs:
           docker push ghcr.io/${{ github.repository }}/opencve-webserver:${{ steps.version.outputs.version }}
 
       - name: Build and push scheduler image
+        if: steps.check-scheduler-changes.outputs.scheduler_changed == 'true'
         run: |
           cd scheduler  # Переход в папку scheduler
           docker build \
