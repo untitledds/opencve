@@ -1,14 +1,9 @@
 from rest_framework import serializers
+import json
 from cves.models import Cve, Product, Vendor
 from .extended_mixins import CveProductsMixin
 from cves.serializers import Vendor, Product
-from cves.constants import (
-    CVSS_CHART_BACKGROUNDS,
-    CVSS_HUMAN_SCORE,
-    CVSS_NAME_MAPPING,
-    CVSS_VECTORS_MAPPING,
-    PRODUCT_SEPARATOR,
-)
+from cves.utils import list_to_dict_vendors
 
 CVSS_FIELDS = ["cvssV4_0", "cvssV3_1", "cvssV3_0", "cvssV2_0"]
 
@@ -80,6 +75,7 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer, CveProductsMixin)
     vulnrichment_json = serializers.SerializerMethodField()
     tags = serializers.SerializerMethodField()
     products = serializers.SerializerMethodField()
+    affected = serializers.SerializerMethodField()
 
     class Meta:
         model = Cve
@@ -91,6 +87,7 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer, CveProductsMixin)
             "description",
             "metrics",
             "weaknesses",
+            "affected",
             "vendors",
             "products",
             "nvd_json",
@@ -128,6 +125,18 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer, CveProductsMixin)
         Возвращает title экземпляра или сгенерированный заголовок.
         """
         return super().get_title(instance)
+
+    def get_affected(self, instance):
+        vendors = instance.vendors
+        if isinstance(vendors, str):
+            try:
+                vendors = json.loads(vendors)
+            except json.JSONDecodeError:
+                vendors = [vendors]
+        elif not isinstance(vendors, list):
+            vendors = []
+
+        return list_to_dict_vendors(vendors)
 
 
 class SubscriptionSerializer(serializers.Serializer):

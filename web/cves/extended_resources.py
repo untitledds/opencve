@@ -109,6 +109,23 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
         vendor = get_object_or_404(Vendor, name=self.kwargs["vendor_name"])
         return Product.objects.filter(vendor=vendor).order_by("name").all()
 
+    def list(self, request, *args, **kwargs):
+        """
+        Возвращает список продуктов для конкретного вендора.
+        """
+        vendor_name = self.kwargs.get("vendor_name")
+        if not vendor_name:
+            return Response(
+                {"status": "error", "message": "Vendor name is required"}, status=400
+            )
+
+        vendor = get_object_or_404(Vendor, name=vendor_name)
+        products = self.get_queryset()
+
+        # Сериализация данных
+        serializer = self.get_serializer(products, many=True)
+        return Response({"status": "success", "products": serializer.data})
+
 
 class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
     permission_classes = [permissions.IsAuthenticated]

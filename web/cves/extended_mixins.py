@@ -1,7 +1,7 @@
 from cves.models import Vendor, Product
 from .extended_utils import get_humanized_title
 from cves.templatetags.opencve_extras import cvss_human_score
-from cves.utils import list_to_dict_vendors  # Импортируем утилиту
+from cves.utils import list_to_dict_vendors
 import json
 import logging
 
@@ -15,28 +15,31 @@ class CveProductsMixin:
 
     def get_vendors(self, instance):
         """
-        Возвращает список вендоров, связанных с CVE.
+        Возвращает список уникальных вендоров, связанных с CVE.
         :param instance: Объект CVE.
         :return: Список вендоров.
         """
         vendors = instance.vendors
-        if isinstance(vendors, list):
-            # Фильтруем только вендоры (строки без $PRODUCT$)
-            return [v for v in vendors if "$PRODUCT$" not in v]
-        elif isinstance(vendors, str):
+
+        # Если vendors — строка, пытаемся десериализовать её в список
+        if isinstance(vendors, str):
             try:
-                # Если vendors — это JSON-строка, преобразуем её в список
-                vendors_list = json.loads(vendors)
-                return [v for v in vendors_list if "$PRODUCT$" not in v]
+                vendors = json.loads(vendors)
             except json.JSONDecodeError:
-                # Если это не JSON, возвращаем как список с одним элементом
                 logger.warning(
                     f"Vendors is a string for CVE {instance.cve_id}: {vendors}"
                 )
-                return [vendors] if "$PRODUCT$" not in vendors else []
-        else:
-            # Возвращаем пустой список, если формат данных неизвестен
+                vendors = [vendors]  # Возвращаем как список с одним элементом
+
+        # Если vendors не список, возвращаем пустой список
+        if not isinstance(vendors, list):
             return []
+
+        # Извлекаем вендоры и убираем дубликаты
+        vendors_list = [
+            v.split("$PRODUCT$")[0] if "$PRODUCT$" in v else v for v in vendors
+        ]
+        return list(set(vendors_list))
 
     def get_products(self, instance):
         """
