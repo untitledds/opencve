@@ -1,7 +1,7 @@
 from cves.models import Vendor, Product
 from .extended_utils import get_humanized_title
 from cves.templatetags.opencve_extras import cvss_human_score
-from .utils import list_to_dict_vendors  # Импортируем утилиту
+from cves.utils import list_to_dict_vendors  # Импортируем утилиту
 import json
 import logging
 
@@ -73,6 +73,21 @@ class CveProductsMixin:
         :param instance: Объект CVE.
         :return: Строка с заголовком.
         """
+        return get_humanized_title(
+            cvss_human_score=self.get_cvss_human_score(instance),
+            cve_id=instance.cve_id,
+            vendors=instance.vendors,
+        )
+
+    def get_title(self, instance):
+        """
+        Возвращает title экземпляра, если он не пустой или не нулевой.
+        Иначе генерирует заголовок с помощью get_humanized_title.
+        :param instance: Объект CVE.
+        :return: Строка с заголовком.
+        """
+        if instance.title and instance.title.strip():
+            return instance.title
         return get_humanized_title(
             cvss_human_score=self.get_cvss_human_score(instance),
             cve_id=instance.cve_id,

@@ -16,8 +16,9 @@ CVSS_FIELDS = ["cvssV4_0", "cvssV3_1", "cvssV3_0", "cvssV2_0"]
 class ExtendedCveListSerializer(serializers.ModelSerializer, CveProductsMixin):
     cvss_score = serializers.SerializerMethodField()
     cvss_human_score = serializers.SerializerMethodField()
-    humanized_title = serializers.SerializerMethodField()
+    title = serializers.SerializerMethodField()
     products = serializers.SerializerMethodField()
+    tags = serializers.SerializerMethodField()
 
     class Meta:
         model = Cve
@@ -25,12 +26,13 @@ class ExtendedCveListSerializer(serializers.ModelSerializer, CveProductsMixin):
             "created_at",
             "updated_at",
             "cve_id",
+            "title",
             "description",
             "cvss_score",
             "cvss_human_score",
-            "humanized_title",
             "vendors",
             "products",
+            "tags",
         ]
 
     def get_vendors(self, instance):
@@ -52,9 +54,26 @@ class ExtendedCveListSerializer(serializers.ModelSerializer, CveProductsMixin):
         cvss = self._get_cvss_data(instance)
         return cvss["score"] if cvss else None
 
+    def get_title(self, instance):
+        """
+        Возвращает title экземпляра или сгенерированный заголовок.
+        """
+        return self.get_title(instance)
+
+    def get_tags(self, instance):
+        if (
+            self.context.get("request")
+            and self.context["request"].user.is_authenticated
+        ):
+            cve_tags = instance.cve_tags.filter(
+                user=self.context["request"].user
+            ).first()
+            return cve_tags.tags if cve_tags else []
+        return []
+
 
 class ExtendedCveDetailSerializer(serializers.ModelSerializer, CveProductsMixin):
-    humanized_title = serializers.SerializerMethodField()
+    title = serializers.SerializerMethodField()
     nvd_json = serializers.SerializerMethodField()
     mitre_json = serializers.SerializerMethodField()
     redhat_json = serializers.SerializerMethodField()
@@ -69,7 +88,6 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer, CveProductsMixin)
             "updated_at",
             "cve_id",
             "title",
-            "humanized_title",
             "description",
             "metrics",
             "weaknesses",
@@ -104,6 +122,12 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer, CveProductsMixin)
             ).first()
             return cve_tags.tags if cve_tags else []
         return []
+
+    def get_title(self, instance):
+        """
+        Возвращает title экземпляра или сгенерированный заголовок.
+        """
+        return self.get_title(instance)
 
 
 class SubscriptionSerializer(serializers.Serializer):
