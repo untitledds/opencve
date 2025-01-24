@@ -237,15 +237,14 @@ class CveTagSerializer(serializers.ModelSerializer):
                 cve_tag.save()
             created_tags.append(cve_tag)
 
-        return created_tags
+        # Возвращаем первый созданный или обновленный тег
+        return created_tags[0] if created_tags else None
 
     def to_representation(self, instance):
-        # Преобразуем список CveTag в список словарей
-        return [
-            {
-                "id": tag.id,
-                "cve_id": tag.cve.cve_id,  # Используем cve_id из объекта Cve
-                "tags": tag.tags,
-            }
-            for tag in instance
-        ]
+        # Преобразуем объект CveTag в словарь
+        return {
+            "id": instance.id,
+            "cve_id": instance.cve.cve_id,  # Используем cve_id из объекта Cve
+            "tags": instance.tags,
+            "user": instance.user.id,
+        }
