@@ -85,9 +85,7 @@ extended_router.register(
     r"extended/tags", UserTagViewSet, basename="usertag"
 )  # Управление тегами
 
-tags_router = routers.NestedSimpleRouter(
-    extended_router, r"extended/tags", lookup="tag"
-)
+tags_router = routers.NestedSimpleRouter(extended_router, r"extended/tags")
 tags_router.register(r"cve", CveTagViewSet, basename="cvetag")
 
 
