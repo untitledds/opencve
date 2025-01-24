@@ -79,11 +79,10 @@ extended_router.register(
     ExtendedSubscriptionViewSet,
     basename="extended-subscription",
 )
+extended_router.register(r"extended/tags/cve", CveTagViewSet, basename="cvetag")
 
 # Добавляем маршруты для тегов в extended_router
 extended_router.register(r"extended/tags", UserTagViewSet, basename="usertag")
-
-extended_router.register(r"extended/tags/cve", CveTagViewSet, basename="cvetag")
 
 
 urlpatterns = [
