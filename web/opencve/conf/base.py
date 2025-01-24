@@ -62,6 +62,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "allauth.account.middleware.AccountMiddleware",
     "hijack.middleware.HijackUserMiddleware",
+    "cves.middlewares.SanitizeInputMiddleware",
     "onboarding.middlewares.OnboardingMiddleware",
     "organizations.middlewares.OrganizationMiddleware",
     "auditlog.middleware.AuditlogMiddleware",
@@ -81,6 +82,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "opencve.context_processors.canonical_url_context",
             ],
         },
     },
@@ -245,3 +247,6 @@ V1_DATABASE = env.db(
 
 # Redirect user to onboarding view if they do not belong to an organization
 ENABLE_ONBOARDING = True
+
+# Maximum number of fields to allow in a CVE Advanced Search query
+CVES_ADVANCED_SEARCH_MAX_FIELDS = 5
