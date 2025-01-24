@@ -449,7 +449,12 @@ class CveTagViewSet(viewsets.ModelViewSet):
         serializer.context["cves"] = cves
         serializer.context["request"] = request  # Передаем request в контекст
         serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
+
+        # Создаем или обновляем теги
+        created_tags = serializer.save()
+
+        # Сериализуем созданные теги с many=True
+        serializer = self.get_serializer(created_tags, many=True)
 
         # Возвращаем ответ
         response_data = {
