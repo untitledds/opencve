@@ -121,6 +121,11 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
 
         products = self.get_queryset()
 
+        page = self.paginate_queryset(products)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
         # Сериализация данных
         serializer = self.get_serializer(products, many=True)
         return Response({"status": "success", "products": serializer.data})
