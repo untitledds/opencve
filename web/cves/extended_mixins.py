@@ -43,32 +43,37 @@ class CveProductsMixin:
 
     def get_products(self, instance):
         """
-        Возвращает список продуктов, связанных с CVE.
+        Возвращает список уникальных продуктов, связанных с CVE.
         :param instance: Объект CVE.
-        :return: Список продуктов.
+        :return: Список уникальных продуктов.
         """
         vendors = instance.vendors
+        products = set()  # Используем set для хранения уникальных значений
+
         if isinstance(vendors, list):
             # Фильтруем только продукты (строки с $PRODUCT$)
-            products = [v.split("$PRODUCT$")[1] for v in vendors if "$PRODUCT$" in v]
-            return products
+            products.update(
+                v.split("$PRODUCT$")[1] for v in vendors if "$PRODUCT$" in v
+            )
         elif isinstance(vendors, str):
             try:
                 # Если vendors — это JSON-строка, преобразуем её в список
                 vendors_list = json.loads(vendors)
-                products = [
+                products.update(
                     v.split("$PRODUCT$")[1] for v in vendors_list if "$PRODUCT$" in v
-                ]
-                return products
+                )
             except json.JSONDecodeError:
                 # Если это не JSON, возвращаем пустой список
                 logger.warning(
                     f"Vendors is a string for CVE {instance.cve_id}: {vendors}"
                 )
-                return [vendors.split("$PRODUCT$")[1]] if "$PRODUCT$" in vendors else []
+                if "$PRODUCT$" in vendors:
+                    products.add(vendors.split("$PRODUCT$")[1])
         else:
             # Возвращаем пустой список, если формат данных неизвестен
-            return []
+            pass
+
+        return list(products)  # Преобразуем set обратно в список
 
     def get_humanized_title(self, instance):
         """
