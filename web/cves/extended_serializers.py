@@ -14,6 +14,7 @@ class ExtendedCveListSerializer(serializers.ModelSerializer, CveProductsMixin):
     title = serializers.SerializerMethodField()
     products = serializers.SerializerMethodField()
     tags = serializers.SerializerMethodField()
+    vendors = serializers.SerializerMethodField()
 
     class Meta:
         model = Cve
@@ -75,6 +76,7 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer, CveProductsMixin)
     vulnrichment_json = serializers.SerializerMethodField()
     tags = serializers.SerializerMethodField()
     products = serializers.SerializerMethodField()
+    vendors = serializers.SerializerMethodField()
     affected = serializers.SerializerMethodField()
 
     class Meta:
@@ -137,6 +139,12 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer, CveProductsMixin)
             vendors = []
 
         return list_to_dict_vendors(vendors)
+
+    def get_vendors(self, instance):
+        """
+        Возвращает словарь вендоров и их продуктов.
+        """
+        return super().get_vendors(instance)  # Используем метод из миксина
 
 
 class SubscriptionSerializer(serializers.Serializer):
