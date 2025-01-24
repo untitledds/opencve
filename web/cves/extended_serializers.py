@@ -193,7 +193,21 @@ class UserTagSerializer(serializers.ModelSerializer):
 
 
 class CveTagSerializer(serializers.ModelSerializer):
+    cve_ids = serializers.ListField(child=serializers.CharField(), write_only=True)
+    tags = serializers.ListField(child=serializers.CharField())
+
     class Meta:
         model = CveTag
-        fields = ["id", "tags", "user", "cve"]
-        read_only_fields = ["user", "cve"]
+        fields = ["id", "cve_ids", "tags", "user"]
+        read_only_fields = ["user"]
+
+    def validate(self, data):
+        # Проверяем, что все теги принадлежат пользователю
+        user = self.context["request"].user
+        tags = data.get("tags", [])
+        for tag in tags:
+            if not UserTag.objects.filter(name=tag, user=user).exists():
+                raise serializers.ValidationError(
+                    {"tags": f"Tag '{tag}' does not belong to the user."}
+                )
+        return data
