@@ -119,7 +119,6 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
                 {"status": "error", "message": "Vendor name is required"}, status=400
             )
 
-        vendor = get_object_or_404(Vendor, name=vendor_name)
         products = self.get_queryset()
 
         # Сериализация данных

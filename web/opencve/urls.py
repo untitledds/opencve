@@ -63,6 +63,12 @@ extended_router.register(
 extended_router.register(
     r"extended/vendor", ExtendedVendorViewSet, basename="extended-vendor"
 )
+extended_vendor_router = routers.NestedSimpleRouter(
+    extended_router, r"extended/vendor", lookup="vendor"
+)
+extended_vendor_router.register(
+    r"product", ExtendedProductViewSet, basename="extended-vendor-product"
+)
 extended_router.register(
     r"extended/product", ExtendedProductViewSet, basename="extended-product"
 )
@@ -95,4 +101,5 @@ urlpatterns = [
     path("api/", include(weaknesses_router.urls)),
     # Extended API routes
     path("api/", include(extended_router.urls)),
+    path("api/", include(extended_vendor_router.urls)),
 ]
