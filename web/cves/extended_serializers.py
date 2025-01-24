@@ -197,11 +197,12 @@ class CveTagSerializer(serializers.ModelSerializer):
         child=serializers.CharField(), write_only=True  # Принимаем список cve_id
     )
     tags = serializers.ListField(child=serializers.CharField())
+    cve_id = serializers.CharField(source="cve.cve_id", read_only=True)
 
     class Meta:
         model = CveTag
-        fields = ["id", "cve_ids", "tags"]  # Поле "user" больше не нужно
-        read_only_fields = ["id"]
+        fields = ["id", "cve_ids", "tags", "cve_id"]  # Поле "user" больше не нужно
+        read_only_fields = ["id", "cve_id"]
 
     def validate_cve_ids(self, value):
         # Проверяем, что каждый cve_id имеет формат CVE-XXXX-XXXX
