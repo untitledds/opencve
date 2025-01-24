@@ -3,6 +3,7 @@ import json
 from cves.models import Cve, Product, Vendor
 from .extended_mixins import CveProductsMixin
 from cves.serializers import Vendor, Product
+from users.models import CveTag, UserTag
 from cves.utils import list_to_dict_vendors
 
 CVSS_FIELDS = ["cvssV4_0", "cvssV3_1", "cvssV3_0", "cvssV2_0"]
@@ -183,3 +184,16 @@ class DetailedSubscriptionSerializer(serializers.Serializer):
     subscriptions = ProjectSubscriptionsSerializer(help_text="Подписки проекта.")
     vendor_details = VendorSerializer(many=True, read_only=True)
     product_details = ProductSerializer(many=True, read_only=True)
+
+
+class UserTagSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserTag
+        fields = ["id", "name", "color", "description"]
+
+
+class CveTagSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CveTag
+        fields = ["id", "tags", "user", "cve"]
+        read_only_fields = ["user", "cve"]

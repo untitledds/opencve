@@ -8,6 +8,7 @@ from django.http import Http404
 from cves.models import Cve, Vendor, Product, Weakness
 from .extended_utils import get_detailed_subscriptions, get_user_organization
 from projects.models import Project
+from users.models import UserTag, CveTag
 from cves.serializers import (
     VendorListSerializer,
     ProductListSerializer,
@@ -19,6 +20,8 @@ from .extended_serializers import (
     ProjectSubscriptionsSerializer,
     SubscriptionSerializer,
     DetailedSubscriptionSerializer,
+    UserTagSerializer,
+    CveTagSerializer,
 )
 from .extended_utils import extended_list_filtered_cves, get_products
 from opencve.utils import is_valid_uuid
@@ -389,3 +392,30 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
             data["message"] = success_message
 
         return Response({"status": "success", **data})
+
+
+class UserTagViewSet(viewsets.ModelViewSet):
+    serializer_class = UserTagSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        # Возвращаем только теги текущего пользователя
+        return UserTag.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        # Автоматически назначаем текущего пользователя как владельца тега
+        serializer.save(user=self.request.user)
+
+
+class CveTagViewSet(viewsets.ModelViewSet):
+    serializer_class = CveTagSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        # Возвращаем только теги, связанные с текущим пользователем
+        return CveTag.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        # Автоматически назначаем текущего пользователя и CVE
+        cve_id = self.kwargs.get("cve_id")
+        serializer.save(user=self.request.user, cve_id=cve_id)

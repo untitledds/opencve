@@ -20,6 +20,8 @@ from cves.extended_resources import (
     ExtendedVendorViewSet,
     ExtendedProductViewSet,
     ExtendedSubscriptionViewSet,
+    CveTagViewSet,
+    UserTagViewSet,
 )
 
 # API Router
@@ -78,6 +80,20 @@ extended_router.register(
     basename="extended-subscription",
 )
 
+# Добавляем маршруты для тегов в extended_router
+extended_router.register(
+    r"extended/tags", UserTagViewSet, basename="usertag"
+)  # Управление тегами
+
+# Вложенные маршруты для тегов CVE
+cve_tags_router = routers.NestedSimpleRouter(
+    extended_router, r"extended/cve", lookup="cve"
+)
+cve_tags_router.register(
+    r"tags", CveTagViewSet, basename="cvetag"
+)  # Назначение тегов на CVE
+
+
 urlpatterns = [
     path("__debug__/", include("debug_toolbar.urls")),
     path("", include("changes.urls")),
@@ -102,4 +118,5 @@ urlpatterns = [
     # Extended API routes
     path("api/", include(extended_router.urls)),
     path("api/", include(extended_vendor_router.urls)),
+    path("api/", include(cve_tags_router.urls)),
 ]
