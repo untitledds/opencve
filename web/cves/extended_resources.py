@@ -415,64 +415,37 @@ class CveTagViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # Возвращаем только теги, связанные с текущим пользователем
         return CveTag.objects.filter(user=self.request.user)
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
-        # Получаем cve_ids и tags из тела запроса
         cve_ids = request.data.get("cve_ids", [])
         tags = request.data.get("tags", [])
 
-        # Проверяем, что cve_ids и tags переданы
         if not cve_ids or not tags:
             raise ValidationError(
                 {"detail": "Both 'cve_ids' and 'tags' are required."},
                 code=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Если передан один cve_id, преобразуем его в список
-        if isinstance(cve_ids, str):
-            cve_ids = [cve_ids]
-
-        # Если передан один тег, преобразуем его в список
-        if isinstance(tags, str):
-            tags = [tags]
-
-        # Убираем дубликаты тегов
+        cve_ids = [cve_ids] if isinstance(cve_ids, str) else cve_ids
+        tags = [tags] if isinstance(tags, str) else tags
         tags = list(set(tags))
 
-        # Создаем CveTag для каждого cve_id
-        new_cve_tags = []
-        updated_cve_tags = []
-
+        # Получаем объекты Cve
+        cves = []
         for cve_id in cve_ids:
-            try:
-                # Проверяем, что CVE существует
-                get_object_or_404(Cve, cve_id=cve_id)
+            cve = get_object_or_404(Cve, cve_id=cve_id)
+            cves.append(cve)
 
-                # Создаем или обновляем теги для текущего cve_id
-                cve_tag, created = CveTag.objects.get_or_create(
-                    cve_id=cve_id, user=request.user, defaults={"tags": tags}
-                )
-                if not created:
-                    # Если тег уже существует, обновляем его
-                    cve_tag.tags = list(set(cve_tag.tags + tags))  # Убираем дубликаты
-                    updated_cve_tags.append(cve_tag)
-                else:
-                    new_cve_tags.append(cve_tag)
-            except ObjectDoesNotExist:
-                raise ValidationError(
-                    {"detail": f"CVE with ID '{cve_id}' does not exist."},
-                    code=status.HTTP_404_NOT_FOUND,
-                )
+        # Передаем объекты Cve в контекст сериализатора
+        serializer = self.get_serializer(
+            data={"cve_ids": cve_ids, "tags": tags, "user": request.user.id}
+        )
+        serializer.context["cves"] = cves
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
 
-        # Массовое создание и обновление
-        CveTag.objects.bulk_create(new_cve_tags)
-        CveTag.objects.bulk_update(updated_cve_tags, fields=["tags"])
-
-        # Сериализуем созданные теги
-        serializer = self.get_serializer(new_cve_tags + updated_cve_tags, many=True)
         response_data = {
             "status": "success",
             "message": "Tags assigned successfully.",

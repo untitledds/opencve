@@ -199,15 +199,45 @@ class CveTagSerializer(serializers.ModelSerializer):
     class Meta:
         model = CveTag
         fields = ["id", "cve_ids", "tags", "user"]
-        read_only_fields = ["user"]
+        read_only_fields = ["id", "user"]
 
-    def validate(self, data):
-        # Проверяем, что все теги принадлежат пользователю
-        user = self.context["request"].user
-        tags = data.get("tags", [])
-        for tag in tags:
-            if not UserTag.objects.filter(name=tag, user=user).exists():
+    def validate_cve_ids(self, value):
+        for cve_id in value:
+            if not cve_id.startswith("CVE-"):
                 raise serializers.ValidationError(
-                    {"tags": f"Tag '{tag}' does not belong to the user."}
+                    f"cve_id '{cve_id}' must start with 'CVE-'."
                 )
-        return data
+        return value
+
+    def create(self, validated_data):
+        validated_data.pop("cve_ids", None)  # Безопасное удаление, если ключа нет
+
+        tags = validated_data.pop("tags")
+        user = validated_data.pop("user")
+
+        # Получаем объекты Cve из контекста
+        cves = self.context.get("cves", [])
+
+        # Создаем или обновляем теги для каждого cve_id
+        created_tags = []
+        for cve in cves:
+            cve_tag, created = CveTag.objects.get_or_create(
+                cve=cve, user=user, defaults={"tags": tags}
+            )
+            if not created:
+                cve_tag.tags = list(set(cve_tag.tags + tags))
+                cve_tag.save()
+            created_tags.append(cve_tag)
+
+        return created_tags
+
+    def to_representation(self, instance):
+        return [
+            {
+                "id": tag.id,
+                "cve_id": tag.cve.cve_id,
+                "tags": tag.tags,
+                "user": tag.user.id,
+            }
+            for tag in instance
+        ]
