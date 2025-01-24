@@ -3,6 +3,7 @@ import logging
 import json
 from rest_framework.response import Response
 from rest_framework.decorators import action
+from rest.framework.exceptions import ValidationError
 from django.shortcuts import get_object_or_404
 from django.http import Http404
 from cves.models import Cve, Vendor, Product, Weakness
@@ -416,6 +417,29 @@ class CveTagViewSet(viewsets.ModelViewSet):
         return CveTag.objects.filter(user=self.request.user)
 
     def perform_create(self, serializer):
-        # Автоматически назначаем текущего пользователя и CVE
+        # Получаем cve_id из URL
         cve_id = self.kwargs.get("cve_id")
+        # Проверяем, что cve_id передан
+        if not cve_id:
+            raise ValidationError("cve_id is required")
+        # Сохраняем тег с текущим пользователем и cve_id
         serializer.save(user=self.request.user, cve_id=cve_id)
+
+    def update(self, request, *args, **kwargs):
+        # Получаем объект CveTag
+        instance = self.get_object()
+        # Получаем новые теги из запроса
+        new_tags = request.data.get("tags", [])
+
+        # Проверяем, что все новые теги принадлежат пользователю
+        for tag in new_tags:
+            # Используем get_object_or_404 для проверки принадлежности тега пользователю
+            get_object_or_404(UserTag, name=tag, user=request.user)
+
+        # Обновляем теги
+        instance.tags = new_tags
+        instance.save()
+
+        # Возвращаем обновленный объект
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
