@@ -85,7 +85,10 @@ extended_router.register(
     r"extended/tags", UserTagViewSet, basename="usertag"
 )  # Управление тегами
 
-extended_router.register(r"extended/cve-tags", CveTagViewSet, basename="cvetag")
+tags_router = routers.NestedSimpleRouter(
+    extended_router, r"extended/tags", lookup="tag"
+)
+tags_router.register(r"cve", CveTagViewSet, basename="cvetag")
 
 
 urlpatterns = [
@@ -112,4 +115,5 @@ urlpatterns = [
     # Extended API routes
     path("api/", include(extended_router.urls)),
     path("api/", include(extended_vendor_router.urls)),
+    path("api/", include(tags_router.urls)),
 ]
