@@ -3,7 +3,7 @@ import logging
 import json
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from rest.framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError
 from django.shortcuts import get_object_or_404
 from django.http import Http404
 from cves.models import Cve, Vendor, Product, Weakness
