@@ -1,4 +1,4 @@
-from rest_framework import mixins, viewsets, permissions
+from rest_framework import mixins, viewsets, permissions, status
 import logging
 import json
 from rest_framework.response import Response
@@ -416,24 +416,37 @@ class CveTagViewSet(viewsets.ModelViewSet):
         # Возвращаем только теги, связанные с текущим пользователем
         return CveTag.objects.filter(user=self.request.user)
 
-    def perform_create(self, serializer):
+    def create(self, request, *args, **kwargs):
         # Получаем cve_id из URL
-        cve_id = self.kwargs.get("cve_id")
-        # Проверяем, что cve_id передан
-        if not cve_id:
-            raise ValidationError("cve_id is required")
+        cve_id = self.kwargs["cve_id"]
+
+        # Проверяем, что все теги принадлежат пользователю
+        new_tags = request.data.get("tags", [])
+        for tag in new_tags:
+            get_object_or_404(UserTag, name=tag, user=request.user)
+
+        # Создаем новый CveTag
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer, cve_id=cve_id)
+
+        # Возвращаем созданный объект
+        headers = self.get_success_headers(serializer.data)
+        return Response(
+            serializer.data, status=status.HTTP_201_CREATED, headers=headers
+        )
+
+    def perform_create(self, serializer, **kwargs):
         # Сохраняем тег с текущим пользователем и cve_id
-        serializer.save(user=self.request.user, cve_id=cve_id)
+        serializer.save(user=self.request.user, cve_id=self.kwargs["cve_id"])
 
     def update(self, request, *args, **kwargs):
         # Получаем объект CveTag
         instance = self.get_object()
-        # Получаем новые теги из запроса
-        new_tags = request.data.get("tags", [])
 
         # Проверяем, что все новые теги принадлежат пользователю
+        new_tags = request.data.get("tags", [])
         for tag in new_tags:
-            # Используем get_object_or_404 для проверки принадлежности тега пользователю
             get_object_or_404(UserTag, name=tag, user=request.user)
 
         # Обновляем теги
