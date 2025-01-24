@@ -193,15 +193,18 @@ class UserTagSerializer(serializers.ModelSerializer):
 
 
 class CveTagSerializer(serializers.ModelSerializer):
-    cve_ids = serializers.ListField(child=serializers.CharField(), write_only=True)
+    cve_ids = serializers.ListField(
+        child=serializers.CharField(), write_only=True  # Принимаем список cve_id
+    )
     tags = serializers.ListField(child=serializers.CharField())
 
     class Meta:
         model = CveTag
-        fields = ["id", "cve_ids", "tags", "user"]
-        read_only_fields = ["id", "user"]
+        fields = ["id", "cve_ids", "tags"]  # Поле "user" больше не нужно
+        read_only_fields = ["id"]
 
     def validate_cve_ids(self, value):
+        # Проверяем, что каждый cve_id имеет формат CVE-XXXX-XXXX
         for cve_id in value:
             if not cve_id.startswith("CVE-"):
                 raise serializers.ValidationError(
@@ -210,34 +213,39 @@ class CveTagSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
-        validated_data.pop("cve_ids", None)  # Безопасное удаление, если ключа нет
+        # Удаляем cve_ids, если он не используется
+        validated_data.pop("cve_ids", None)
 
         tags = validated_data.pop("tags")
-        user = validated_data.pop("user")
 
         # Получаем объекты Cve из контекста
         cves = self.context.get("cves", [])
+
+        # Получаем текущего пользователя из контекста
+        user = self.context["request"].user
 
         # Создаем или обновляем теги для каждого cve_id
         created_tags = []
         for cve in cves:
             cve_tag, created = CveTag.objects.get_or_create(
-                cve=cve, user=user, defaults={"tags": tags}
+                cve=cve,
+                user=user,  # Используем текущего пользователя
+                defaults={"tags": tags},
             )
             if not created:
-                cve_tag.tags = list(set(cve_tag.tags + tags))
+                cve_tag.tags = list(set(cve_tag.tags + tags))  # Убираем дубликаты
                 cve_tag.save()
             created_tags.append(cve_tag)
 
         return created_tags
 
     def to_representation(self, instance):
+        # Преобразуем список CveTag в список словарей
         return [
             {
                 "id": tag.id,
-                "cve_id": tag.cve.cve_id,
+                "cve_id": tag.cve.cve_id,  # Используем cve_id из объекта Cve
                 "tags": tag.tags,
-                "user": tag.user.id,
             }
             for tag in instance
         ]

@@ -415,40 +415,50 @@ class CveTagViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        # Возвращаем только теги, связанные с текущим пользователем
         return CveTag.objects.filter(user=self.request.user)
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
+        # Получаем cve_ids и tags из тела запроса
         cve_ids = request.data.get("cve_ids", [])
         tags = request.data.get("tags", [])
 
+        # Проверяем, что cve_ids и tags переданы
         if not cve_ids or not tags:
             raise ValidationError(
                 {"detail": "Both 'cve_ids' and 'tags' are required."},
                 code=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Преобразуем cve_ids и tags в списки (если они переданы как строки)
         cve_ids = [cve_ids] if isinstance(cve_ids, str) else cve_ids
         tags = [tags] if isinstance(tags, str) else tags
+
+        # Убираем дубликаты тегов
         tags = list(set(tags))
 
-        # Получаем объекты Cve
+        # Получаем объекты Cve по cve_ids
         cves = []
         for cve_id in cve_ids:
             cve = get_object_or_404(Cve, cve_id=cve_id)
             cves.append(cve)
 
-        # Передаем объекты Cve в контекст сериализатора
-        serializer = self.get_serializer(
-            data={"cve_ids": cve_ids, "tags": tags, "user": request.user.id}
-        )
+        # Передаем объекты Cve и текущего пользователя в контекст сериализатора
+        serializer = self.get_serializer(data={"cve_ids": cve_ids, "tags": tags})
         serializer.context["cves"] = cves
+        serializer.context["request"] = request  # Передаем request в контекст
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        self.perform_create(serializer)
 
+        # Возвращаем ответ
         response_data = {
             "status": "success",
             "message": "Tags assigned successfully.",
             "data": serializer.data,
         }
         return Response(response_data, status=status.HTTP_201_CREATED)
+
+    def perform_create(self, serializer):
+        # Текущий пользователь автоматически добавляется в validated_data
+        serializer.save()
