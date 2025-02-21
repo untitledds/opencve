@@ -98,6 +98,7 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer, CveProductsMixin)
             "redhat_json",
             "vulnrichment_json",
             "tags",
+            "cpes",
         ]
 
     def get_nvd_json(self, instance):
