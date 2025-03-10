@@ -41,6 +41,12 @@ jobs:
         with:
           platforms: arm64
 
+      - name: Install ARM dependencies
+        if: matrix.architecture == 'arm64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-user-static binfmt-support
+
       - name: Git checkout
         uses: actions/checkout@v4
 
@@ -114,6 +120,12 @@ jobs:
         with:
           platforms: arm64
 
+      - name: Install ARM dependencies
+        if: matrix.architecture == 'arm64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-user-static binfmt-support
+
       - name: Git checkout
         uses: actions/checkout@v4
 
@@ -170,6 +182,12 @@ jobs:
         uses: docker/setup-qemu-action@v2
         with:
           platforms: arm64
+
+      - name: Install ARM dependencies
+        if: matrix.architecture == 'arm64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-user-static binfmt-support
 
       - name: Git checkout
         uses: actions/checkout@v4
