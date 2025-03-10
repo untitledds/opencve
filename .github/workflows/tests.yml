@@ -20,7 +20,7 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
-        architecture: [x64, arm64]  # Добавляем поддержку aarch64
+        architecture: [x64, arm64]  # Поддержка x64 и aarch64
     services:
       postgres:
         image: postgres
@@ -35,19 +35,28 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
+      - name: Set up QEMU for ARM emulation
+        if: matrix.architecture == 'arm64'
+        uses: docker/setup-qemu-action@v2
+        with:
+          platforms: arm64
+
       - name: Git checkout
         uses: actions/checkout@v4
+
       - name: Setup Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           architecture: ${{ matrix.architecture }}
+
       - name: Cache Python dependencies
         id: cache-web-deps
         uses: actions/cache@v3
         with:
           path: web/venv
           key: web-deps-${{ hashFiles('web/requirements.txt') }}-${{ matrix.architecture }}
+
       - name: Install requirements
         run: |
           cd web
@@ -55,10 +64,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r tests/requirements.txt
+
       - name: Display packages version
         run: |
           python -c "import sys; print(sys.version)"
           pip freeze
+
       - name: Execute tests
         env:
           DJANGO_SETTINGS_MODULE: opencve.conf.settings
@@ -73,7 +84,7 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
-        architecture: [x64, arm64]  # Добавляем поддержку aarch64
+        architecture: [x64, arm64]  # Поддержка x64 и aarch64
     services:
       postgres_web:
         image: postgres
@@ -97,19 +108,28 @@ jobs:
         ports:
           - 6379:6379
     steps:
+      - name: Set up QEMU for ARM emulation
+        if: matrix.architecture == 'arm64'
+        uses: docker/setup-qemu-action@v2
+        with:
+          platforms: arm64
+
       - name: Git checkout
         uses: actions/checkout@v4
+
       - name: Setup Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           architecture: ${{ matrix.architecture }}
+
       - name: Cache Python dependencies
         id: cache-scheduler-deps
         uses: actions/cache@v3
         with:
           path: scheduler/venv
           key: scheduler-deps-${{ hashFiles('scheduler/requirements.txt') }}-${{ matrix.architecture }}
+
       - name: Init web database
         run: |
           cd web
@@ -123,6 +143,7 @@ jobs:
         env:
           DJANGO_SETTINGS_MODULE: opencve.conf.settings
           OPENCVE_DATABASE_URL: postgresql://opencve:opencve@localhost:5432/opencve
+
       - name: Install scheduler requirements
         run: |
           cd scheduler
@@ -130,6 +151,7 @@ jobs:
           source venv_scheduler/bin/activate
           pip install -r requirements.txt
           pip install pytest==8.3.2
+
       - name: Execute tests
         run: |
           cd scheduler
@@ -141,8 +163,14 @@ jobs:
     needs: [pre-commit, tests-web, tests-scheduler]
     strategy:
       matrix:
-        architecture: [x64, arm64]  # Добавляем поддержку aarch64
+        architecture: [x64, arm64]  # Поддержка x64 и aarch64
     steps:
+      - name: Set up QEMU for ARM emulation
+        if: matrix.architecture == 'arm64'
+        uses: docker/setup-qemu-action@v2
+        with:
+          platforms: arm64
+
       - name: Git checkout
         uses: actions/checkout@v4
         with:
@@ -192,17 +220,18 @@ jobs:
         if: steps.check-web-changes.outputs.web_changed == 'true'
         run: |
           cd web
-          docker buildx create --use  # Используем Buildx для кросс-платформенной сборки
+          docker buildx create --use
           docker buildx build \
             --platform linux/${{ matrix.architecture }} \
             --build-arg OPENCVE_VERSION=${{ steps.version.outputs.version }} \
             -t ghcr.io/${{ github.repository }}/opencve-webserver:${{ steps.version.outputs.version }}-${{ matrix.architecture }} \
             --push .
+
       - name: Build and push scheduler image
         if: steps.check-scheduler-changes.outputs.scheduler_changed == 'true'
         run: |
           cd scheduler
-          docker buildx create --use  # Используем Buildx для кросс-платформенной сборки
+          docker buildx create --use
           docker buildx build \
             --platform linux/${{ matrix.architecture }} \
             -t ghcr.io/${{ github.repository }}/opencve-scheduler:${{ steps.version.outputs.version }}-${{ matrix.architecture }} \
