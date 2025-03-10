@@ -153,7 +153,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
-      - name: Determine version
+      - name: Determine version or branch
         id: version
         run: |
           if [ "${{ github.ref_type }}" == "tag" ]; then
@@ -161,7 +161,9 @@ jobs:
             echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
           else
             echo "Using branch name: ${{ github.ref_name }}"
-            echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+            # Убираем префикс refs/heads/ из имени ветки
+            BRANCH_NAME=$(echo "${{ github.ref }}" | sed 's/refs\/heads\///g')
+            echo "version=$BRANCH_NAME" >> $GITHUB_OUTPUT
           fi
 
       - name: Check for changes in web directory
@@ -194,6 +196,7 @@ jobs:
             --platform linux/amd64,linux/arm64 \
             --build-arg OPENCVE_VERSION=${{ steps.version.outputs.version }} \
             -t ghcr.io/${{ github.repository }}/opencve-webserver:${{ steps.version.outputs.version }} \
+            -t ghcr.io/${{ github.repository }}/opencve-webserver:${{ steps.version.outputs.version }}-arm64 \
             -t ghcr.io/${{ github.repository }}/opencve-webserver:latest \
             --push .
 
@@ -204,5 +207,6 @@ jobs:
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             -t ghcr.io/${{ github.repository }}/opencve-scheduler:${{ steps.version.outputs.version }} \
+            -t ghcr.io/${{ github.repository }}/opencve-scheduler:${{ steps.version.outputs.version }}-arm64 \
             -t ghcr.io/${{ github.repository }}/opencve-scheduler:latest \
             --push .
