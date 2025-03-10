@@ -20,6 +20,7 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
+        architecture: [x64, arm64]  # Добавляем поддержку aarch64
     services:
       postgres:
         image: postgres
@@ -40,13 +41,13 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          architecture: x64
+          architecture: ${{ matrix.architecture }}
       - name: Cache Python dependencies
         id: cache-web-deps
         uses: actions/cache@v3
         with:
           path: web/venv
-          key: web-deps-${{ hashFiles('web/requirements.txt') }}
+          key: web-deps-${{ hashFiles('web/requirements.txt') }}-${{ matrix.architecture }}
       - name: Install requirements
         run: |
           cd web
@@ -72,6 +73,7 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
+        architecture: [x64, arm64]  # Добавляем поддержку aarch64
     services:
       postgres_web:
         image: postgres
@@ -101,13 +103,13 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          architecture: x64
+          architecture: ${{ matrix.architecture }}
       - name: Cache Python dependencies
         id: cache-scheduler-deps
         uses: actions/cache@v3
         with:
           path: scheduler/venv
-          key: scheduler-deps-${{ hashFiles('scheduler/requirements.txt') }}
+          key: scheduler-deps-${{ hashFiles('scheduler/requirements.txt') }}-${{ matrix.architecture }}
       - name: Init web database
         run: |
           cd web
@@ -136,7 +138,10 @@ jobs:
 
   build-and-push:
     runs-on: ubuntu-latest
-    needs: [pre-commit, tests-web, tests-scheduler]  # Запускать только после успешного прохождения тестов
+    needs: [pre-commit, tests-web, tests-scheduler]
+    strategy:
+      matrix:
+        architecture: [x64, arm64]  # Добавляем поддержку aarch64
     steps:
       - name: Git checkout
         uses: actions/checkout@v4
@@ -186,16 +191,19 @@ jobs:
       - name: Build and push webserver image
         if: steps.check-web-changes.outputs.web_changed == 'true'
         run: |
-          cd web  # Переход в папку web
-          docker build \
+          cd web
+          docker buildx create --use  # Используем Buildx для кросс-платформенной сборки
+          docker buildx build \
+            --platform linux/${{ matrix.architecture }} \
             --build-arg OPENCVE_VERSION=${{ steps.version.outputs.version }} \
-            -t ghcr.io/${{ github.repository }}/opencve-webserver:${{ steps.version.outputs.version }} .
-          docker push ghcr.io/${{ github.repository }}/opencve-webserver:${{ steps.version.outputs.version }}
-
+            -t ghcr.io/${{ github.repository }}/opencve-webserver:${{ steps.version.outputs.version }}-${{ matrix.architecture }} \
+            --push .
       - name: Build and push scheduler image
         if: steps.check-scheduler-changes.outputs.scheduler_changed == 'true'
         run: |
-          cd scheduler  # Переход в папку scheduler
-          docker build \
-            -t ghcr.io/${{ github.repository }}/opencve-scheduler:${{ steps.version.outputs.version }} .
-          docker push ghcr.io/${{ github.repository }}/opencve-scheduler:${{ steps.version.outputs.version }}
+          cd scheduler
+          docker buildx create --use  # Используем Buildx для кросс-платформенной сборки
+          docker buildx build \
+            --platform linux/${{ matrix.architecture }} \
+            -t ghcr.io/${{ github.repository }}/opencve-scheduler:${{ steps.version.outputs.version }}-${{ matrix.architecture }} \
+            --push .
