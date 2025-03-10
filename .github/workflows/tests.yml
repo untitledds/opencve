@@ -1,4 +1,4 @@
-name: Tests
+name: Tests and Build
 on: [push, pull_request, workflow_dispatch]
 
 jobs:
@@ -7,11 +7,13 @@ jobs:
     steps:
       - name: Git checkout
         uses: actions/checkout@v4
-      - name: Setup Python ${{ matrix.python-version }}
+
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: 3.12
           architecture: x64
+
       - name: Run pre-commit
         uses: pre-commit/action@v3.0.1
 
@@ -20,7 +22,7 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
-        architecture: [x64, arm64]  # Поддержка x64 и aarch64
+        architecture: [x64, arm64]
     services:
       postgres:
         image: postgres
@@ -35,32 +37,46 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
+      # 1. Настройка QEMU для ARM
       - name: Set up QEMU for ARM emulation
         if: matrix.architecture == 'arm64'
         uses: docker/setup-qemu-action@v2
         with:
           platforms: arm64
 
-      - name: Register ARM binfmt handlers
+      # 2. Регистрация обработчиков бинарных форматов
+      - name: Register binfmt handlers
         if: matrix.architecture == 'arm64'
         run: |
           docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
+      # 3. Установка зависимостей для ARM
       - name: Install ARM dependencies
         if: matrix.architecture == 'arm64'
         run: |
           sudo apt-get update
           sudo apt-get install -y qemu-user-static binfmt-support
 
+      # 4. Установка ARM-библиотек
+      - name: Install ARM libraries
+        if: matrix.architecture == 'arm64'
+        run: |
+          sudo dpkg --add-architecture arm64
+          sudo apt-get update
+          sudo apt-get install -y libc6:arm64
+
+      # 5. Git checkout
       - name: Git checkout
         uses: actions/checkout@v4
 
+      # 6. Настройка Python
       - name: Setup Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           architecture: ${{ matrix.architecture }}
 
+      # 7. Кэширование Python зависимостей
       - name: Cache Python dependencies
         id: cache-web-deps
         uses: actions/cache@v3
@@ -68,6 +84,7 @@ jobs:
           path: web/venv
           key: web-deps-${{ hashFiles('web/requirements.txt') }}-${{ matrix.architecture }}
 
+      # 8. Установка зависимостей
       - name: Install requirements
         run: |
           cd web
@@ -76,11 +93,7 @@ jobs:
           pip install -r requirements.txt
           pip install -r tests/requirements.txt
 
-      - name: Display packages version
-        run: |
-          python -c "import sys; print(sys.version)"
-          pip freeze
-
+      # 9. Выполнение тестов
       - name: Execute tests
         env:
           DJANGO_SETTINGS_MODULE: opencve.conf.settings
@@ -95,7 +108,7 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
-        architecture: [x64, arm64]  # Поддержка x64 и aarch64
+        architecture: [x64, arm64]
     services:
       postgres_web:
         image: postgres
@@ -119,32 +132,46 @@ jobs:
         ports:
           - 6379:6379
     steps:
+      # 1. Настройка QEMU для ARM
       - name: Set up QEMU for ARM emulation
         if: matrix.architecture == 'arm64'
         uses: docker/setup-qemu-action@v2
         with:
           platforms: arm64
 
-      - name: Register ARM binfmt handlers
+      # 2. Регистрация обработчиков бинарных форматов
+      - name: Register binfmt handlers
         if: matrix.architecture == 'arm64'
         run: |
           docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
+      # 3. Установка зависимостей для ARM
       - name: Install ARM dependencies
         if: matrix.architecture == 'arm64'
         run: |
           sudo apt-get update
           sudo apt-get install -y qemu-user-static binfmt-support
 
+      # 4. Установка ARM-библиотек
+      - name: Install ARM libraries
+        if: matrix.architecture == 'arm64'
+        run: |
+          sudo dpkg --add-architecture arm64
+          sudo apt-get update
+          sudo apt-get install -y libc6:arm64
+
+      # 5. Git checkout
       - name: Git checkout
         uses: actions/checkout@v4
 
+      # 6. Настройка Python
       - name: Setup Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           architecture: ${{ matrix.architecture }}
 
+      # 7. Кэширование Python зависимостей
       - name: Cache Python dependencies
         id: cache-scheduler-deps
         uses: actions/cache@v3
@@ -152,6 +179,7 @@ jobs:
           path: scheduler/venv
           key: scheduler-deps-${{ hashFiles('scheduler/requirements.txt') }}-${{ matrix.architecture }}
 
+      # 8. Инициализация базы данных
       - name: Init web database
         run: |
           cd web
@@ -166,6 +194,7 @@ jobs:
           DJANGO_SETTINGS_MODULE: opencve.conf.settings
           OPENCVE_DATABASE_URL: postgresql://opencve:opencve@localhost:5432/opencve
 
+      # 9. Установка зависимостей планировщика
       - name: Install scheduler requirements
         run: |
           cd scheduler
@@ -174,6 +203,7 @@ jobs:
           pip install -r requirements.txt
           pip install pytest==8.3.2
 
+      # 10. Выполнение тестов
       - name: Execute tests
         run: |
           cd scheduler
@@ -185,30 +215,41 @@ jobs:
     needs: [pre-commit, tests-web, tests-scheduler]
     strategy:
       matrix:
-        architecture: [x64, arm64]  # Поддержка x64 и aarch64
+        architecture: [x64, arm64]
     steps:
+      # 1. Настройка QEMU для ARM
       - name: Set up QEMU for ARM emulation
         if: matrix.architecture == 'arm64'
         uses: docker/setup-qemu-action@v2
         with:
           platforms: arm64
 
-      - name: Register ARM binfmt handlers
+      # 2. Регистрация обработчиков бинарных форматов
+      - name: Register binfmt handlers
         if: matrix.architecture == 'arm64'
         run: |
           docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
+      # 3. Установка зависимостей для ARM
       - name: Install ARM dependencies
         if: matrix.architecture == 'arm64'
         run: |
           sudo apt-get update
           sudo apt-get install -y qemu-user-static binfmt-support
 
+      # 4. Установка ARM-библиотек
+      - name: Install ARM libraries
+        if: matrix.architecture == 'arm64'
+        run: |
+          sudo dpkg --add-architecture arm64
+          sudo apt-get update
+          sudo apt-get install -y libc6:arm64
+
+      # 5. Git checkout
       - name: Git checkout
         uses: actions/checkout@v4
-        with:
-            fetch-depth: 0
 
+      # 6. Логин в GitHub Container Registry
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v2
         with:
@@ -216,6 +257,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # 7. Определение версии
       - name: Determine version
         id: version
         run: |
@@ -227,6 +269,7 @@ jobs:
             echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
           fi
 
+      # 8. Проверка изменений в директории web
       - name: Check for changes in web directory
         id: check-web-changes
         run: |
@@ -238,6 +281,7 @@ jobs:
             echo "web_changed=true" >> $GITHUB_OUTPUT
           fi
 
+      # 9. Проверка изменений в директории scheduler
       - name: Check for changes in scheduler directory
         id: check-scheduler-changes
         run: |
@@ -249,6 +293,7 @@ jobs:
             echo "scheduler_changed=true" >> $GITHUB_OUTPUT
           fi
 
+      # 10. Сборка и публикация образа webserver
       - name: Build and push webserver image
         if: steps.check-web-changes.outputs.web_changed == 'true'
         run: |
@@ -260,6 +305,7 @@ jobs:
             -t ghcr.io/${{ github.repository }}/opencve-webserver:${{ steps.version.outputs.version }}-${{ matrix.architecture }} \
             --push .
 
+      # 11. Сборка и публикация образа scheduler
       - name: Build and push scheduler image
         if: steps.check-scheduler-changes.outputs.scheduler_changed == 'true'
         run: |
