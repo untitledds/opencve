@@ -104,6 +104,49 @@ class ExtendedVendorViewSet(viewsets.ReadOnlyModelViewSet):
     lookup_field = "name"
     lookup_url_kwarg = "name"
 
+    def get_queryset(self):
+        """
+        Переопределение queryset для поддержки поиска.
+        """
+        queryset = Vendor.objects.order_by("name").all()
+
+        # Применяем фильтрацию только для действия list
+        if self.action == "list":
+            search_query = self.request.GET.get("search", None)
+            if search_query:
+                # Используем icontains для поиска без учета регистра
+                queryset = queryset.filter(name__icontains=search_query)
+
+        return queryset
+
+    def list(self, request, *args, **kwargs):
+        """
+        Возвращает список вендоров с поддержкой поиска.
+        """
+        queryset = self.get_queryset()
+        page = self.paginate_queryset(queryset)
+
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({"status": "success", "vendors": serializer.data})
+
+    @action(detail=False, methods=["get"])
+    def search(self, request):
+        """
+        Отдельный endpoint для поиска вендоров.
+        """
+        search_query = request.query_params.get("q", "")
+        if not search_query:
+            return Response({"results": []})
+
+        # Используем icontains для поиска без учета регистра
+        vendors = Vendor.objects.filter(name__icontains=search_query)[:50]
+        serializer = self.get_serializer(vendors, many=True)
+        return Response({"results": serializer.data})
+
 
 class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ProductListSerializer
