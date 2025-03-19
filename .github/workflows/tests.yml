@@ -150,7 +150,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Determine version
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Determine version or branch
         id: version
         run: |
           if [ "${{ github.ref_type }}" == "tag" ]; then
@@ -158,44 +161,73 @@ jobs:
             echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
           else
             echo "Using branch name: ${{ github.ref_name }}"
-            echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+            # Убираем префикс refs/heads/ из имени ветки
+            BRANCH_NAME=$(echo "${{ github.ref }}" | sed 's/refs\/heads\///g')
+            echo "version=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check if build should be forced
+        id: force_build
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" || "${{ github.event.commits[0].message }}" == *"[force build]"* ]]; then
+            echo "Build is forced"
+            echo "force_build=true" >> $GITHUB_OUTPUT
+          else
+            echo "Build is not forced"
+            echo "force_build=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Check for changes in web directory
         id: check-web-changes
         run: |
-          if git diff --quiet ${{ github.event.before }} ${{ github.sha }} -- web/; then
-            echo "No changes in web directory"
-            echo "web_changed=false" >> $GITHUB_OUTPUT
-          else
-            echo "Changes detected in web directory"
+          if [[ "${{ steps.force_build.outputs.force_build }}" == "true" ]]; then
+            echo "Build is forced, skipping changes check"
             echo "web_changed=true" >> $GITHUB_OUTPUT
+          else
+            if git diff --quiet ${{ github.event.before }} ${{ github.sha }} -- web/; then
+              echo "No changes in web directory"
+              echo "web_changed=false" >> $GITHUB_OUTPUT
+            else
+              echo "Changes detected in web directory"
+              echo "web_changed=true" >> $GITHUB_OUTPUT
+            fi
           fi
 
       - name: Check for changes in scheduler directory
         id: check-scheduler-changes
         run: |
-          if git diff --quiet ${{ github.event.before }} ${{ github.sha }} -- scheduler/; then
-            echo "No changes in scheduler directory"
-            echo "scheduler_changed=false" >> $GITHUB_OUTPUT
-          else
-            echo "Changes detected in scheduler directory"
+          if [[ "${{ steps.force_build.outputs.force_build }}" == "true" ]]; then
+            echo "Build is forced, skipping changes check"
             echo "scheduler_changed=true" >> $GITHUB_OUTPUT
+          else
+            if git diff --quiet ${{ github.event.before }} ${{ github.sha }} -- scheduler/; then
+              echo "No changes in scheduler directory"
+              echo "scheduler_changed=false" >> $GITHUB_OUTPUT
+            else
+              echo "Changes detected in scheduler directory"
+              echo "scheduler_changed=true" >> $GITHUB_OUTPUT
+            fi
           fi
 
       - name: Build and push webserver image
         if: steps.check-web-changes.outputs.web_changed == 'true'
         run: |
-          cd web  # Переход в папку web
-          docker build \
+          cd web
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
             --build-arg OPENCVE_VERSION=${{ steps.version.outputs.version }} \
-            -t ghcr.io/${{ github.repository }}/opencve-webserver:${{ steps.version.outputs.version }} .
-          docker push ghcr.io/${{ github.repository }}/opencve-webserver:${{ steps.version.outputs.version }}
+            -t ghcr.io/${{ github.repository }}/opencve-webserver:${{ steps.version.outputs.version }} \
+            -t ghcr.io/${{ github.repository }}/opencve-webserver:${{ steps.version.outputs.version }}-arm64 \
+            -t ghcr.io/${{ github.repository }}/opencve-webserver:latest \
+            --push .
 
       - name: Build and push scheduler image
         if: steps.check-scheduler-changes.outputs.scheduler_changed == 'true'
         run: |
-          cd scheduler  # Переход в папку scheduler
-          docker build \
-            -t ghcr.io/${{ github.repository }}/opencve-scheduler:${{ steps.version.outputs.version }} .
-          docker push ghcr.io/${{ github.repository }}/opencve-scheduler:${{ steps.version.outputs.version }}
+          cd scheduler
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            -t ghcr.io/${{ github.repository }}/opencve-scheduler:${{ steps.version.outputs.version }} \
+            -t ghcr.io/${{ github.repository }}/opencve-scheduler:${{ steps.version.outputs.version }}-arm64 \
+            -t ghcr.io/${{ github.repository }}/opencve-scheduler:latest \
+            --push .
