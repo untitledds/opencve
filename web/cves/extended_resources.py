@@ -155,29 +155,51 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
     lookup_url_kwarg = "name"
 
     def get_queryset(self):
-        vendor = get_object_or_404(Vendor, name=self.kwargs["vendor_name"])
-        return Product.objects.filter(vendor=vendor).order_by("name").all()
+        """
+        Переопределение queryset для поддержки поиска по всем продуктам
+        или только по продуктам конкретного вендора.
+        """
+        vendor_name = self.kwargs.get("vendor_name")
+        search_query = self.request.GET.get("search", None)
+
+        if vendor_name:
+            # Если указан vendor_name, фильтруем продукты по вендору
+            vendor = get_object_or_404(Vendor, name=vendor_name)
+            queryset = Product.objects.filter(vendor=vendor).order_by("name").all()
+        else:
+            # Иначе берем все продукты
+            queryset = Product.objects.order_by("name").all()
+
+        # Применяем фильтрацию по имени продукта, если есть параметр search
+        if search_query:
+            queryset = queryset.filter(name__icontains=search_query)
+
+        return queryset
 
     def list(self, request, *args, **kwargs):
         """
-        Возвращает список продуктов для конкретного вендора.
+        Возвращает список продуктов с поддержкой поиска.
         """
         vendor_name = self.kwargs.get("vendor_name")
-        if not vendor_name:
-            return Response(
-                {"status": "error", "message": "Vendor name is required"}, status=400
-            )
+        queryset = self.get_queryset()
+        page = self.paginate_queryset(queryset)
 
-        products = self.get_queryset()
-
-        page = self.paginate_queryset(products)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             return self.get_paginated_response(serializer.data)
 
         # Сериализация данных
-        serializer = self.get_serializer(products, many=True)
-        return Response({"status": "success", "products": serializer.data})
+        serializer = self.get_serializer(queryset, many=True)
+        response_data = {
+            "status": "success",
+            "products": serializer.data,
+        }
+
+        # Добавляем информацию о вендоре, если он указан
+        if vendor_name:
+            response_data["vendor"] = vendor_name
+
+        return Response(response_data)
 
 
 class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
