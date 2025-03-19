@@ -1,4 +1,4 @@
-from rest_framework import mixins, viewsets, permissions, status
+from rest_framework import viewsets, permissions, status
 import logging
 import json
 from rest_framework.response import Response
@@ -6,14 +6,12 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from django.shortcuts import get_object_or_404
 from django.http import Http404
-from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from cves.models import Cve, Vendor, Product, Weakness
 from .extended_utils import get_detailed_subscriptions, get_user_organization
 from projects.models import Project
 from users.models import UserTag, CveTag
 from cves.serializers import (
-    VendorListSerializer,
     ProductListSerializer,
     WeaknessListSerializer,
 )
@@ -25,9 +23,11 @@ from .extended_serializers import (
     DetailedSubscriptionSerializer,
     UserTagSerializer,
     CveTagSerializer,
+    ExtendedVendorListSerializer,
 )
 from .extended_utils import extended_list_filtered_cves, get_products
-from opencve.utils import is_valid_uuid
+
+# from opencve.utils import is_valid_uuid
 from cves.utils import list_to_dict_vendors
 
 logger = logging.getLogger(__name__)
@@ -98,7 +98,7 @@ class ExtendedWeaknessViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class ExtendedVendorViewSet(viewsets.ReadOnlyModelViewSet):
-    serializer_class = VendorListSerializer
+    serializer_class = ExtendedVendorListSerializer
     permission_classes = (permissions.IsAuthenticated,)
     queryset = Vendor.objects.order_by("name").all()
     lookup_field = "name"

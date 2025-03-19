@@ -2,9 +2,11 @@ from rest_framework import serializers
 import json
 from cves.models import Cve, Product, Vendor
 from .extended_mixins import CveProductsMixin
-from cves.serializers import Vendor, Product
+
+# from cves.serializers import Vendor, Product
 from users.models import CveTag, UserTag
 from cves.utils import list_to_dict_vendors
+
 
 CVSS_FIELDS = ["cvssV4_0", "cvssV3_1", "cvssV3_0", "cvssV2_0"]
 
@@ -79,6 +81,7 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer, CveProductsMixin)
     products = serializers.SerializerMethodField()
     vendors = serializers.SerializerMethodField()
     affected = serializers.SerializerMethodField()
+    weakness_ref = serializers.SerializerMethodField()
 
     class Meta:
         model = Cve
@@ -99,7 +102,36 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer, CveProductsMixin)
             "vulnrichment_json",
             "tags",
             "references",
+            "weakness_ref",
         ]
+
+    def get_weakness_ref(self, instance):
+        """
+        Возвращает список ссылок на описание CWE (Common Weakness Enumeration) на сайте MITRE.
+        Если поле weaknesses пустое или содержит некорректные данные, возвращается пустой список.
+        """
+        weaknesses = instance.weaknesses
+
+        # Проверяем, что weaknesses существует и является списком
+        if not weaknesses or not isinstance(weaknesses, list):
+            return []
+
+        weakness_refs = []
+        for weakness in weaknesses:
+            # Проверяем, что каждый элемент списка соответствует формату "CWE-XXX"
+            if isinstance(weakness, str) and weakness.startswith("CWE-"):
+                try:
+                    # Извлекаем числовую часть из строки "CWE-XXX"
+                    cwe_id = weakness.split("-")[1]
+                    # Формируем URL для описания CWE
+                    weakness_refs.append(
+                        f"https://cwe.mitre.org/data/definitions/{cwe_id}.html"
+                    )
+                except IndexError:
+                    # Если строка не соответствует формату "CWE-XXX", пропускаем её
+                    continue
+
+        return weakness_refs
 
     def get_nvd_json(self, instance):
         return instance.nvd_json
@@ -170,6 +202,28 @@ class VendorSerializer(serializers.ModelSerializer):
     class Meta:
         model = Vendor
         fields = ["id", "name"]
+
+
+class ExtendedVendorListSerializer(serializers.ModelSerializer):
+    products_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Vendor
+        fields = [
+            "id",
+            "created_at",
+            "updated_at",
+            "name",
+            "products_count",  # Новое поле
+        ]
+
+    def get_products_count(self, obj):
+        """
+        Вычисляет количество продуктов, связанных с вендором.
+        :param obj: Экземпляр модели Vendor.
+        :return: Количество продуктов.
+        """
+        return obj.products.count()
 
 
 class ProductSerializer(serializers.ModelSerializer):
