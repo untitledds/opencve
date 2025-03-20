@@ -256,7 +256,8 @@ class CveTagSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CveTag
-        fields = ["id", "cve_ids", "tags", "cve_id"]  # Поле "user" больше не нужно
+        # Поле "user" больше не нужно
+        fields = ["id", "cve_ids", "tags", "cve_id"]
         read_only_fields = ["id", "cve_id"]
 
     def validate_cve_ids(self, value):
@@ -289,7 +290,8 @@ class CveTagSerializer(serializers.ModelSerializer):
                 defaults={"tags": tags},
             )
             if not created:
-                cve_tag.tags = list(set(cve_tag.tags + tags))  # Убираем дубликаты
+                # Убираем дубликаты
+                cve_tag.tags = list(set(cve_tag.tags + tags))
                 cve_tag.save()
             created_tags.append(cve_tag)
 

@@ -326,13 +326,12 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
         # Валидация обязательных параметров
         if not obj_type or obj_type not in ["vendor", "product"]:
             return self._return_response(
-                {}, error_message="Invalid or missing 'obj_type'. Use 'vendor' or 'product'."
+                {},
+                error_message="Invalid or missing 'obj_type'. Use 'vendor' or 'product'.",
             )
 
         if not search_query:
-            return self._return_response(
-                {}, error_message="Search query is required."
-            )
+            return self._return_response({}, error_message="Search query is required.")
 
         # Получаем организацию пользователя
         organization = get_user_organization(request.user)
@@ -343,10 +342,14 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
 
         # Определяем проект для фильтрации подписок
         if project_id:
-            project = get_object_or_404(Project, id=project_id, organization=organization)
+            project = get_object_or_404(
+                Project, id=project_id, organization=organization
+            )
         elif org_name:
             project = None
-            projects = Project.objects.filter(organization__name=org_name, organization=organization)
+            projects = Project.objects.filter(
+                organization__name=org_name, organization=organization
+            )
         else:
             project = None
             projects = Project.objects.filter(organization=organization)
@@ -373,7 +376,9 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
             return self._return_response({"results": serialized_data})
         except Exception as e:
             logger.error(f"Error during search: {e}")
-            return self._return_response({}, error_message="An error occurred during search.")
+            return self._return_response(
+                {}, error_message="An error occurred during search."
+            )
 
     def _handle_subscription(self, request, action):
         """

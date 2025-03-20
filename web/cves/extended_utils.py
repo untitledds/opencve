@@ -1,5 +1,3 @@
-from django.db.models import Q
-from django.utils import timezone
 from cves.utils import list_filtered_cves, list_to_dict_vendors
 from cves.models import Vendor, Product
 from organizations.models import Membership
