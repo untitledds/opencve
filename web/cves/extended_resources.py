@@ -299,6 +299,82 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
         serialized_data = DetailedSubscriptionSerializer(detailed_subscriptions).data
         return self._return_response(serialized_data)
 
+    @action(detail=False, methods=["get"])
+    def search(self, request):
+        """
+        Поиск вендоров и продуктов с учетом контекста пользователя.
+
+        Параметры запроса:
+        - obj_type (str): Тип объекта для поиска ("vendor" или "product").
+        - q (str): Поисковый запрос (часть имени).
+        - project_id (UUID, optional): ID проекта для фильтрации по подпискам.
+        - org_name (str, optional): Имя организации для фильтрации по подпискам.
+
+        Примеры запросов:
+        - /api/extended/subscription/search/?obj_type=vendor&q=Micro&project_id=123e4567-e89b-12d3-a456-426614174000
+        - /api/extended/subscription/search/?obj_type=product&q=nginx&org_name=OrganizationX
+
+        Возвращает:
+        - results (list): Список найденных объектов (вендоров или продуктов) с информацией о подписке.
+        """
+        # Получаем параметры запроса
+        obj_type = request.query_params.get("obj_type")  # "vendor" или "product"
+        search_query = request.query_params.get("q", "").strip()
+        project_id = request.query_params.get("project_id")
+        org_name = request.query_params.get("org_name")
+
+        # Валидация обязательных параметров
+        if not obj_type or obj_type not in ["vendor", "product"]:
+            return self._return_response(
+                {}, error_message="Invalid or missing 'obj_type'. Use 'vendor' or 'product'."
+            )
+
+        if not search_query:
+            return self._return_response(
+                {}, error_message="Search query is required."
+            )
+
+        # Получаем организацию пользователя
+        organization = get_user_organization(request.user)
+        if not organization:
+            return self._return_response(
+                {}, error_message="User is not a member of any organization"
+            )
+
+        # Определяем проект для фильтрации подписок
+        if project_id:
+            project = get_object_or_404(Project, id=project_id, organization=organization)
+        elif org_name:
+            project = None
+            projects = Project.objects.filter(organization__name=org_name, organization=organization)
+        else:
+            project = None
+            projects = Project.objects.filter(organization=organization)
+
+        # Выполняем поиск
+        try:
+            if obj_type == "vendor":
+                results = Vendor.objects.filter(name__icontains=search_query)[:50]
+                serializer = ExtendedVendorListSerializer(results, many=True)
+            elif obj_type == "product":
+                results = Product.objects.filter(name__icontains=search_query)[:50]
+                serializer = ProductListSerializer(results, many=True)
+
+            # Добавляем информацию о подписке
+            serialized_data = serializer.data
+            subscriptions = self._get_subscriptions(project=project, projects=projects)
+            for item in serialized_data:
+                if obj_type == "vendor":
+                    item["is_subscribed"] = item["name"] in subscriptions["vendors"]
+                elif obj_type == "product":
+                    vendored_name = f"{item['vendor']['name']}:{item['name']}"
+                    item["is_subscribed"] = vendored_name in subscriptions["products"]
+
+            return self._return_response({"results": serialized_data})
+        except Exception as e:
+            logger.error(f"Error during search: {e}")
+            return self._return_response({}, error_message="An error occurred during search.")
+
     def _handle_subscription(self, request, action):
         """
         Обрабатывает подписку или отписку на вендора или продукта.
