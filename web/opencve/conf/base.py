@@ -67,6 +67,7 @@ MIDDLEWARE = [
     "organizations.middlewares.OrganizationMiddleware",
     "auditlog.middleware.AuditlogMiddleware",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
+    "cves.extended_middleware.ProxyHeaderAuthenticationMiddleware",
 ]
 
 ROOT_URLCONF = "opencve.urls"
