@@ -10,11 +10,14 @@ import logging
 logger = logging.getLogger(__name__)
 User = get_user_model()
 
+
 class ProxyHeaderAuthenticationMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
-        self.username_header = getattr(settings, 'PROXY_HEADER_USER', 'HTTP_X_AUTH_USER')
-        self.email_header = getattr(settings, 'PROXY_HEADER_EMAIL', 'HTTP_X_AUTH_EMAIL')
+        self.username_header = getattr(
+            settings, "PROXY_HEADER_USER", "HTTP_X_AUTH_USER"
+        )
+        self.email_header = getattr(settings, "PROXY_HEADER_EMAIL", "HTTP_X_AUTH_EMAIL")
 
     def __call__(self, request):
         # Пробуем аутентификацию через заголовки, только если пользователь ещё не аутентифицирован
@@ -40,8 +43,7 @@ class ProxyHeaderAuthenticationMiddleware:
         organization, _ = Organization.objects.get_or_create(name=organization_name)
 
         user, created = User.objects.get_or_create(
-            username=username,
-            defaults={"email": email}
+            username=username, defaults={"email": email}
         )
 
         if created:
@@ -62,9 +64,7 @@ class ProxyHeaderAuthenticationMiddleware:
 
         # Подтверждаем email в AllAuth
         EmailAddress.objects.get_or_create(
-            user=user,
-            email=user.email,
-            defaults={"verified": True, "primary": True}
+            user=user, email=user.email, defaults={"verified": True, "primary": True}
         )
 
         # Логиним пользователя
