@@ -13,12 +13,14 @@ User = get_user_model()
 class ProxyHeaderAuthenticationMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
+        self.username_header = getattr(settings, 'PROXY_HEADER_USER', 'HTTP_X_AUTH_USER')
+        self.email_header = getattr(settings, 'PROXY_HEADER_EMAIL', 'HTTP_X_AUTH_EMAIL')
 
     def __call__(self, request):
         # Пробуем аутентификацию через заголовки, только если пользователь ещё не аутентифицирован
         if not request.user.is_authenticated:
-            username = request.META.get(settings.PROXY_HEADER_USER)
-            email = request.META.get(settings.PROXY_HEADER_EMAIL)
+            username = request.META.get(self.username_header)
+            email = request.META.get(self.email_header)
 
             if username and email:
                 try:
