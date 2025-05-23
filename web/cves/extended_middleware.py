@@ -14,10 +14,11 @@ User = get_user_model()
 class ProxyHeaderAuthenticationMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
-        self.username_header = getattr(
-            settings, "PROXY_HEADER_USER", "HTTP_X_AUTH_USER"
+        self.username_header = getattr(settings, "PROXY_HEADER_USER", "Remote-User")
+        self.email_header = getattr(settings, "PROXY_HEADER_EMAIL", "Remote-Email")
+        self.organization_name = getattr(
+            settings, "GLOBAL_ORGANIZATION_NAME", "Default"
         )
-        self.email_header = getattr(settings, "PROXY_HEADER_EMAIL", "HTTP_X_AUTH_EMAIL")
 
     def __call__(self, request):
         # Пробуем аутентификацию через заголовки, только если пользователь ещё не аутентифицирован
@@ -39,7 +40,7 @@ class ProxyHeaderAuthenticationMiddleware:
 
     def _process_proxy_auth(self, request, username, email):
         """Обрабатывает аутентификацию через прокси-заголовки."""
-        organization_name = settings.GLOBAL_ORGANIZATION_NAME
+        organization_name = self.organization_name
         organization, _ = Organization.objects.get_or_create(name=organization_name)
 
         user, created = User.objects.get_or_create(
@@ -63,9 +64,14 @@ class ProxyHeaderAuthenticationMiddleware:
             logger.info(f"Updated email for user {username}")
 
         # Подтверждаем email в AllAuth
-        EmailAddress.objects.get_or_create(
+        email_address, created = EmailAddress.objects.get_or_create(
             user=user, email=user.email, defaults={"verified": True, "primary": True}
         )
+        if not created and not email_address.verified:
+            email_address.verified = True
+            email_address.primary = True
+            email_address.save()
+            logger.info(f"Updated and verified email for user {username}")
 
         # Логиним пользователя
         login(request, user)
