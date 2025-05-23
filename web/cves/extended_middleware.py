@@ -20,36 +20,92 @@ class ProxyHeaderAuthenticationMiddleware:
             settings, "GLOBAL_ORGANIZATION_NAME", "Default"
         )
 
+        logger.debug(
+            f"Initializing ProxyHeaderAuthenticationMiddleware with settings: "
+            f"username_header='{self.username_header}', "
+            f"email_header='{self.email_header}', "
+            f"organization_name='{self.organization_name}'"
+        )
+
     def __call__(self, request):
-        # Пробуем аутентификацию через заголовки, только если пользователь ещё не аутентифицирован
+        logger.debug(
+            f"Incoming request - path: {request.path}, "
+            f"authenticated: {request.user.is_authenticated}"
+        )
+
         if not request.user.is_authenticated:
             username = request.META.get(self.username_header)
             email = request.META.get(self.email_header)
 
+            logger.debug(
+                f"Checking proxy headers - {self.username_header}: {username}, "
+                f"{self.email_header}: {email}"
+            )
+
             if username and email:
+                logger.info(
+                    f"Attempting proxy authentication for user: {username}, "
+                    f"email: {email}"
+                )
                 try:
                     with transaction.atomic():
                         self._process_proxy_auth(request, username, email)
                 except Exception as e:
-                    logger.error(f"Proxy auth failed: {e}", exc_info=True)
-                    # Продолжаем цепочку middleware, даже если аутентификация не удалась
+                    logger.error(
+                        f"Proxy authentication failed for {username}. Error: {str(e)}",
+                        exc_info=True,
+                    )
+            else:
+                logger.debug(
+                    "Proxy authentication skipped - missing required headers: "
+                    f"username {'present' if username else 'missing'}, "
+                    f"email {'present' if email else 'missing'}"
+                )
+        else:
+            logger.debug(
+                f"User {request.user.username} already authenticated - "
+                "skipping proxy authentication"
+            )
 
-        # Если прокси-аутентификация не сработала, Django попробует другие методы (сессии, токены и т. д.)
         response = self.get_response(request)
+
+        logger.debug(
+            f"Request completed - path: {request.path}, "
+            f"status: {response.status_code}"
+        )
+
         return response
 
     def _process_proxy_auth(self, request, username, email):
         """Обрабатывает аутентификацию через прокси-заголовки."""
-        organization_name = self.organization_name
-        organization, _ = Organization.objects.get_or_create(name=organization_name)
+        logger.debug(
+            f"Starting proxy authentication process for user: {username}, "
+            f"email: {email}"
+        )
 
-        user, created = User.objects.get_or_create(
-            username=username, defaults={"email": email}
+        # Organization handling
+        organization_name = self.organization_name
+        logger.debug(f"Looking up organization: {organization_name}")
+
+        organization, created = Organization.objects.get_or_create(
+            name=organization_name
         )
 
         if created:
+            logger.info(f"Created new organization: {organization_name}")
+        else:
+            logger.debug(f"Using existing organization: {organization_name}")
+
+        # User handling
+        user, user_created = User.objects.get_or_create(
+            username=username, defaults={"email": email}
+        )
+
+        if user_created:
+            logger.info(f"Creating new user: {username}")
             user.set_unusable_password()
             user.save()
+
             Membership.objects.create(
                 user=user,
                 organization=organization,
@@ -57,21 +113,35 @@ class ProxyHeaderAuthenticationMiddleware:
                 date_invited=now(),
                 date_joined=now(),
             )
-            logger.info(f"Created new user via proxy auth: {username}")
-        elif user.email != email:
-            user.email = email
-            user.save()
-            logger.info(f"Updated email for user {username}")
+            logger.info(
+                f"Created membership for user {username} in organization {organization_name}"
+            )
+        else:
+            logger.debug(f"Found existing user: {username}")
+            if user.email != email:
+                logger.info(
+                    f"Updating email for user {username} from {user.email} to {email}"
+                )
+                user.email = email
+                user.save()
 
-        # Подтверждаем email в AllAuth
-        email_address, created = EmailAddress.objects.get_or_create(
+        # Email verification handling (for allauth)
+        logger.debug(f"Processing email verification for {email}")
+
+        email_address, email_created = EmailAddress.objects.get_or_create(
             user=user, email=user.email, defaults={"verified": True, "primary": True}
         )
-        if not created and not email_address.verified:
-            email_address.verified = True
-            email_address.primary = True
-            email_address.save()
-            logger.info(f"Updated and verified email for user {username}")
 
-        # Логиним пользователя
+        if email_created:
+            logger.info(f"Created new verified email address for {username}")
+        else:
+            if not email_address.verified:
+                logger.info(f"Marking existing email as verified for {username}")
+                email_address.verified = True
+                email_address.primary = True
+                email_address.save()
+
+        # Login user
+        logger.debug(f"Logging in user {username}")
         login(request, user)
+        logger.info(f"Successfully authenticated user {username} via proxy headers")
