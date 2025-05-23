@@ -149,7 +149,7 @@ class ProxyHeaderAuthenticationMiddleware:
                 email_address.verified = True
                 email_address.primary = True
                 email_address.save()
-
+        user.backend = "django.contrib.auth.backends.ModelBackend"
         # Login user
         logger.debug(f"Logging in user {username}")
         login(request, user)
