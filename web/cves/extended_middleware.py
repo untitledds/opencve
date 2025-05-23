@@ -1,5 +1,5 @@
 from django.conf import settings
-from django.contrib.auth import login, authenticate
+from django.contrib.auth import login
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from organizations.models import Organization, Membership
@@ -14,23 +14,32 @@ User = get_user_model()
 class ProxyHeaderAuthenticationMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
-        self.username_header = getattr(settings, "PROXY_HEADER_USER", "Remote-User")
-        self.email_header = getattr(settings, "PROXY_HEADER_EMAIL", "Remote-Email")
+        self.username_header = self._get_header_name(
+            getattr(settings, "PROXY_HEADER_USER", "Remote-User")
+        )
+        self.email_header = self._get_header_name(
+            getattr(settings, "PROXY_HEADER_EMAIL", "Remote-Email")
+        )
         self.organization_name = getattr(
             settings, "GLOBAL_ORGANIZATION_NAME", "Default"
         )
 
         logger.debug(
             f"Initializing ProxyHeaderAuthenticationMiddleware with settings: "
-            f"username_header='{self.username_header}', "
-            f"email_header='{self.email_header}', "
+            f"username_header='{self.username_header}' (original: '{getattr(settings, 'PROXY_HEADER_USER', 'Remote-User')}'), "
+            f"email_header='{self.email_header}' (original: '{getattr(settings, 'PROXY_HEADER_EMAIL', 'Remote-Email')}'), "
             f"organization_name='{self.organization_name}'"
         )
+
+    def _get_header_name(self, header_name):
+        """Преобразует имя заголовка в формат, используемый Django в request.META"""
+        return f"HTTP_{header_name.upper().replace('-', '_')}"
 
     def __call__(self, request):
         logger.debug(
             f"Incoming request - path: {request.path}, "
-            f"authenticated: {request.user.is_authenticated}"
+            f"authenticated: {request.user.is_authenticated}, "
+            f"all headers: { {k: v for k, v in request.META.items() if k.startswith('HTTP_')} }"
         )
 
         if not request.user.is_authenticated:
