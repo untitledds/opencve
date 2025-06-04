@@ -5,12 +5,13 @@ import json
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.http import Http404
 from django.db import transaction
 from cves.models import Cve, Vendor, Product, Weakness
 from .extended_utils import get_detailed_subscriptions, get_user_organization
-from projects.models import Project
+from projects.models import Project, get_default_subscriptions
 from users.models import UserTag, CveTag
 from cves.serializers import (
     ProductListSerializer,
@@ -406,12 +407,26 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
         :param project_id: UUID проекта.
         :return: Проект.
         """
+
+        if project_id:
+            return self._get_project_by_id(project_id)
         organization = get_user_organization(self.request.user)
         if not organization:
             raise Http404("User is not a member of any organization")
-
-        project = get_object_or_404(Project, id=project_id, organization=organization)
-        return project
+        default_project = Project.objects.filter(
+            organization=organization,
+            name=getattr(settings, "GLOBAL_DEFAULT_PROJECT_NAME", "Default Project")).first()
+        if not default_project:
+            # Если проект по умолчанию не найден, создаем его
+            default_project = Project.objects.create(
+                name=getattr(settings, "GLOBAL_DEFAULT_PROJECT_NAME", "Default Project"),
+                organization=organization,
+                description="Automatically created default project",
+                subscriptions=get_default_subscriptions()
+            )
+            logger.info(f"Created default project for organization {organization.name}")
+        #project = get_object_or_404(Project, id=project_id, organization=organization)
+        return default_project
 
     def _get_subscriptions(self, project=None, projects=None):
         """
