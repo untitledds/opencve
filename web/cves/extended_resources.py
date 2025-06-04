@@ -283,8 +283,10 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
         project = self._get_project(request)
         detailed_subscriptions = get_detailed_subscriptions(project)
 
-        if (not detailed_subscriptions["subscriptions"]["vendors"] and
-            not detailed_subscriptions["subscriptions"]["products"]):
+        if (
+            not detailed_subscriptions["subscriptions"]["vendors"]
+            and not detailed_subscriptions["subscriptions"]["products"]
+        ):
             return self._return_response({})
 
         # Сериализуем данные с помощью DetailedSubscriptionSerializer
@@ -415,17 +417,20 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
             raise Http404("User is not a member of any organization")
         default_project = Project.objects.filter(
             organization=organization,
-            name=getattr(settings, "GLOBAL_DEFAULT_PROJECT_NAME", "Default Project")).first()
+            name=getattr(settings, "GLOBAL_DEFAULT_PROJECT_NAME", "Default Project"),
+        ).first()
         if not default_project:
             # Если проект по умолчанию не найден, создаем его
             default_project = Project.objects.create(
-                name=getattr(settings, "GLOBAL_DEFAULT_PROJECT_NAME", "Default Project"),
+                name=getattr(
+                    settings, "GLOBAL_DEFAULT_PROJECT_NAME", "Default Project"
+                ),
                 organization=organization,
                 description="Automatically created default project",
-                subscriptions=get_default_subscriptions()
+                subscriptions=get_default_subscriptions(),
             )
             logger.info(f"Created default project for organization {organization.name}")
-        #project = get_object_or_404(Project, id=project_id, organization=organization)
+        # project = get_object_or_404(Project, id=project_id, organization=organization)
         return default_project
 
     def _get_subscriptions(self, project=None, projects=None):

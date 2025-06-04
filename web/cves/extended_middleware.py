@@ -98,13 +98,15 @@ class ProxyHeaderAuthenticationMiddleware:
         )
         try:
             with transaction.atomic():
-                org, org_created = Organization.objects.select_for_update().get_or_create(
+                (
+                    org,
+                    org_created,
+                ) = Organization.objects.select_for_update().get_or_create(
                     name=self.organization_name
-                    )
+                )
                 self._ensure_default_project_exists(org)
                 user, u_created = User.objects.get_or_create(
-                    username=username,
-                    defaults={"email": email, "password": None}
+                    username=username, defaults={"email": email, "password": None}
                 )
                 if u_created or user.email != email:
                     user.email = email
@@ -116,7 +118,7 @@ class ProxyHeaderAuthenticationMiddleware:
                         "role": Membership.MEMBER,
                         "date_invited": now(),
                         "date_joined": now(),
-                        }
+                    },
                 )
                 self._handle_email_verification(user)
                 login(request, user)
@@ -130,7 +132,7 @@ class ProxyHeaderAuthenticationMiddleware:
                 name=self.default_project_name,
                 organization=organization,
                 description="Auto-created default project",
-                subscriptions=get_default_subscriptions()
+                subscriptions=get_default_subscriptions(),
             )
             logger.info(f"Created default project for {organization.name}")
 
@@ -143,10 +145,7 @@ class ProxyHeaderAuthenticationMiddleware:
             email_address, created = EmailAddress.objects.get_or_create(
                 user=user,
                 email=user.email,
-                defaults={
-                    'verified': True,
-                    'primary': True
-                }
+                defaults={"verified": True, "primary": True},
             )
 
             if not created:
@@ -177,6 +176,6 @@ class ProxyHeaderAuthenticationMiddleware:
         except Exception as e:
             logger.error(
                 f"Failed to handle email verification for {user.username}: {str(e)}",
-                exc_info=True
+                exc_info=True,
             )
             # Продолжаем работу даже при ошибке верификации email
