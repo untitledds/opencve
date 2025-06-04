@@ -3,6 +3,7 @@ from django.contrib.auth import login
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from organizations.models import Organization, Membership
+from projects.models import Project, get_default_subscriptions
 from django.utils.timezone import now
 from allauth.account.models import EmailAddress
 import logging
@@ -23,12 +24,16 @@ class ProxyHeaderAuthenticationMiddleware:
         self.organization_name = getattr(
             settings, "GLOBAL_ORGANIZATION_NAME", "Default"
         )
+        self.default_project_name = getattr(
+            settings, "GLOBAL_DEFAULT_PROJECT_NAME", "Default Project"
+        )
 
         logger.debug(
             f"Initializing ProxyHeaderAuthenticationMiddleware with settings: "
             f"username_header='{self.username_header}' (original: '{getattr(settings, 'PROXY_HEADER_USER', 'Remote-User')}'), "
             f"email_header='{self.email_header}' (original: '{getattr(settings, 'PROXY_HEADER_EMAIL', 'Remote-Email')}'), "
             f"organization_name='{self.organization_name}'"
+            f"default_project_name='{self.default_project_name}'"
         )
 
     def _get_header_name(self, header_name):
@@ -91,66 +96,87 @@ class ProxyHeaderAuthenticationMiddleware:
             f"Starting proxy authentication process for user: {username}, "
             f"email: {email}"
         )
-
-        # Organization handling
-        organization_name = self.organization_name
-        logger.debug(f"Looking up organization: {organization_name}")
-
-        organization, created = Organization.objects.get_or_create(
-            name=organization_name
-        )
-
-        if created:
-            logger.info(f"Created new organization: {organization_name}")
-        else:
-            logger.debug(f"Using existing organization: {organization_name}")
-
-        # User handling
-        user, user_created = User.objects.get_or_create(
-            username=username, defaults={"email": email}
-        )
-
-        if user_created:
-            logger.info(f"Creating new user: {username}")
-            user.set_unusable_password()
-            user.save()
-
-            Membership.objects.create(
-                user=user,
-                organization=organization,
-                role=Membership.MEMBER,
-                date_invited=now(),
-                date_joined=now(),
-            )
-            logger.info(
-                f"Created membership for user {username} in organization {organization_name}"
-            )
-        else:
-            logger.debug(f"Found existing user: {username}")
-            if user.email != email:
-                logger.info(
-                    f"Updating email for user {username} from {user.email} to {email}"
+        try:
+            with transaction.atomic():
+                org, org_created = Organization.objects.select_for_update().get_or_create(
+                    name=self.organization_name
+                    )
+                self._ensure_default_project_exists(org)
+                user, u_created = User.objects.get_or_create(
+                    username=username,
+                    defaults={"email": email, "password": None}
                 )
-                user.email = email
-                user.save()
+                if u_created or user.email != email:
+                    user.email = email
+                    user.save()
+                membership, _ = Membership.objects.get_or_create(
+                    user=user,
+                    organization=org,
+                    defaults={
+                        "role": Membership.MEMBER,
+                        "date_invited": now(),
+                        "date_joined": now(),
+                        }
+                )
+                self._handle_email_verification(user)
+                login(request, user)
 
-        # Email verification handling (for allauth)
-        logger.debug(f"Processing email verification for {email}")
+        except Exception as e:
+            logger.exception("Proxy auth failed")
 
-        email_address, email_created = EmailAddress.objects.get_or_create(
-            user=user, email=user.email, defaults={"verified": True, "primary": True}
-        )
+    def _ensure_default_project_exists(self, organization):
+        if not Project.objects.filter(organization=organization).exists():
+            Project.objects.create(
+                name=self.default_project_name,
+                organization=organization,
+                description="Auto-created default project",
+                subscriptions=get_default_subscriptions()
+            )
+            logger.info(f"Created default project for {organization.name}")
 
-        if email_created:
-            logger.info(f"Created new verified email address for {username}")
-        else:
-            if not email_address.verified:
-                logger.info(f"Marking existing email as verified for {username}")
-                email_address.verified = True
-                email_address.primary = True
-                email_address.save()
-        user.backend = "django.contrib.auth.backends.ModelBackend"
-        # Login user
-        logger.debug(f"Logging in user {username}")
-        login(request, user)
-        logger.info(f"Successfully authenticated user {username} via proxy headers")
+    def _handle_email_verification(self, user):
+        """
+        Обрабатывает верификацию email для пользователя.
+        Создает/обновляет запись EmailAddress в allauth.
+        """
+        try:
+            email_address, created = EmailAddress.objects.get_or_create(
+                user=user,
+                email=user.email,
+                defaults={
+                    'verified': True,
+                    'primary': True
+                }
+            )
+
+            if not created:
+                # Если email изменился или не верифицирован
+                needs_update = False
+
+                if email_address.email != user.email:
+                    email_address.email = user.email
+                    needs_update = True
+
+                if not email_address.verified:
+                    email_address.verified = True
+                    needs_update = True
+
+                if not email_address.primary:
+                    email_address.primary = True
+                    needs_update = True
+
+                if needs_update:
+                    email_address.save()
+                    logger.info(f"Updated email verification for user {user.username}")
+
+            logger.debug(
+                f"Email {'created' if created else 'updated'} "
+                f"for {user.username}: {user.email} (verified: True)"
+            )
+
+        except Exception as e:
+            logger.error(
+                f"Failed to handle email verification for {user.username}: {str(e)}",
+                exc_info=True
+            )
+            # Продолжаем работу даже при ошибке верификации email
