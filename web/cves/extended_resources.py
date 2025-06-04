@@ -230,9 +230,7 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
         subscriptions = self._get_subscriptions(project=project)
 
         if not subscriptions["vendors"] and not subscriptions["products"]:
-            return self._return_response(
-                {}, error_message="No subscriptions found for this project"
-            )
+            return self._return_response({})
 
         return self._return_response(subscriptions)
 
@@ -261,17 +259,13 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
         """
         organization = get_user_organization(request.user)
         if not organization:
-            return self._return_response(
-                {}, error_message="User is not a member of any organization"
-            )
+            return self._return_response({})
 
         projects = Project.objects.filter(organization=organization)
         subscriptions = self._get_subscriptions(projects=projects)
 
         if not subscriptions["vendors"] and not subscriptions["products"]:
-            return self._return_response(
-                {}, error_message="No subscriptions found for this user"
-            )
+            return self._return_response({})
 
         return self._return_response(
             {
@@ -288,13 +282,9 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
         project = self._get_project(request)
         detailed_subscriptions = get_detailed_subscriptions(project)
 
-        if (
-            not detailed_subscriptions["subscriptions"]["vendors"]
-            and not detailed_subscriptions["subscriptions"]["products"]
-        ):
-            return self._return_response(
-                {}, error_message="No detailed subscriptions found for this project"
-            )
+        if (not detailed_subscriptions["subscriptions"]["vendors"] and
+            not detailed_subscriptions["subscriptions"]["products"]):
+            return self._return_response({})
 
         # Сериализуем данные с помощью DetailedSubscriptionSerializer
         serialized_data = DetailedSubscriptionSerializer(detailed_subscriptions).data
@@ -455,6 +445,9 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
 
         if success_message:
             data["message"] = success_message
+
+        if not data:  # Если данных нет, возвращаем 204
+            return Response(status=status.HTTP_204_NO_CONTENT)
 
         return Response({"status": "success", **data})
 
