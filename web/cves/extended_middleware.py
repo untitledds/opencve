@@ -111,7 +111,7 @@ class ProxyHeaderAuthenticationMiddleware:
                 if u_created or user.email != email:
                     user.email = email
                     user.save()
-                membership, _ = Membership.objects.get_or_create(
+                membership, _ = Membership.objects.select_for_update().get_or_create(
                     user=user,
                     organization=org,
                     defaults={
@@ -121,8 +121,8 @@ class ProxyHeaderAuthenticationMiddleware:
                     },
                 )
                 self._handle_email_verification(user)
+                request.user = user
                 user.backend = "django.contrib.auth.backends.ModelBackend"
-                login(request, user)
 
         except Exception as e:
             logger.exception("Proxy auth failed")
