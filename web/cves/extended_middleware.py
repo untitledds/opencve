@@ -121,6 +121,7 @@ class ProxyHeaderAuthenticationMiddleware:
                     },
                 )
                 self._handle_email_verification(user)
+                user.backend = "django.contrib.auth.backends.ModelBackend"
                 login(request, user)
 
         except Exception as e:
