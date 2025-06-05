@@ -65,7 +65,7 @@ class ProxyHeaderAuthenticationMiddleware:
                 try:
                     with transaction.atomic():
                         self._process_proxy_auth(request, username, email)
-                    setattr(request, '_dont_enforce_csrf_checks', True)
+                    setattr(request, "_dont_enforce_csrf_checks", True)
                 except Exception as e:
                     logger.error(
                         f"Proxy authentication failed for {username}. Error: {str(e)}",
