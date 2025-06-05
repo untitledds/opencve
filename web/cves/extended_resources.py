@@ -307,30 +307,21 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
         obj_id = serializer.validated_data["obj_id"]
         # Безопасное получение project_id, project_name и org_name
         project_id = serializer.validated_data.get("project_id")  # Используем .get()
-        project_name = serializer.validated_data.get(
-            "project_name"
-        )  # Используем .get()
-        org_name = serializer.validated_data.get("org_name")  # Используем .get()
         if project_id:
             project = self._get_project_by_id(project_id)
-        elif project_name and org_name:
+        else:
             # Если project_id не указан, но есть имя проекта и организации, ищем проект по ним
             organization = get_user_organization(request.user)
             if not organization:
                 return self._return_response(
-                    {}, error_message="User is not a member of any organization"
+                    {}, error_message=f"User is not a member of any organization"
                 )
 
+            default_project_name = getattr(settings, "GLOBAL_DEFAULT_PROJECT_NAME", "default")
             project = get_object_or_404(
                 Project,
-                name=project_name,
-                organization__name=org_name,
+                name=default_project_name,
                 organization=organization,
-            )
-        else:
-            return self._return_response(
-                {},
-                error_message="Either project_id or project_name and org_name must be provided",
             )
 
         return self._process_subscription(project, obj_id, obj_type, action)
@@ -409,29 +400,14 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
         :param project_id: UUID проекта.
         :return: Проект.
         """
-
-        if project_id:
-            return self._get_project_by_id(project_id)
         organization = get_user_organization(self.request.user)
         if not organization:
             raise Http404("User is not a member of any organization")
-        default_project = Project.objects.filter(
-            organization=organization,
-            name=getattr(settings, "GLOBAL_DEFAULT_PROJECT_NAME", "Default Project"),
-        ).first()
-        if not default_project:
-            # Если проект по умолчанию не найден, создаем его
-            default_project = Project.objects.create(
-                name=getattr(
-                    settings, "GLOBAL_DEFAULT_PROJECT_NAME", "Default Project"
-                ),
-                organization=organization,
-                description="Automatically created default project",
-                subscriptions=get_default_subscriptions(),
-            )
-            logger.info(f"Created default project for organization {organization.name}")
-        # project = get_object_or_404(Project, id=project_id, organization=organization)
-        return default_project
+
+        # Получаем проект по ID
+        project = get_object_or_404(Project, id=project_id, organization=organization)
+
+        return project
 
     def _get_subscriptions(self, project=None, projects=None):
         """
@@ -467,7 +443,7 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
             data["message"] = success_message
 
         if not data:  # Если данных нет, возвращаем 204
-            return Response(status=status.HTTP_204_NO_CONTENT)
+            return Response({"status": "success", "message": success_message },status=status.HTTP_204_NO_CONTENT)
 
         return Response({"status": "success", **data})
 
