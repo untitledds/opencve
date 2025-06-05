@@ -317,7 +317,9 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
                     {}, error_message=f"User is not a member of any organization"
                 )
 
-            default_project_name = getattr(settings, "GLOBAL_DEFAULT_PROJECT_NAME", "default")
+            default_project_name = getattr(
+                settings, "GLOBAL_DEFAULT_PROJECT_NAME", "default"
+            )
             project = get_object_or_404(
                 Project,
                 name=default_project_name,
@@ -443,7 +445,10 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
             data["message"] = success_message
 
         if not data:  # Если данных нет, возвращаем 204
-            return Response({"status": "success", "message": success_message },status=status.HTTP_204_NO_CONTENT)
+            return Response(
+                {"status": "success", "message": success_message},
+                status=status.HTTP_204_NO_CONTENT,
+            )
 
         return Response({"status": "success", **data})
 
