@@ -41,6 +41,7 @@ class ProxyHeaderAuthenticationMiddleware:
         return f"HTTP_{header_name.upper().replace('-', '_')}"
 
     def __call__(self, request):
+        request.csrf_processing_done = False
         logger.debug(
             f"Incoming request - path: {request.path}, "
             f"authenticated: {request.user.is_authenticated}, "
@@ -64,6 +65,7 @@ class ProxyHeaderAuthenticationMiddleware:
                 try:
                     with transaction.atomic():
                         self._process_proxy_auth(request, username, email)
+                    setattr(request, '_dont_enforce_csrf_checks', True)
                 except Exception as e:
                     logger.error(
                         f"Proxy authentication failed for {username}. Error: {str(e)}",
