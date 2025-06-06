@@ -39,17 +39,13 @@ class ExtendedCveListSerializer(serializers.ModelSerializer, CveProductsMixin):
         """
         Возвращает словарь вендоров и их продуктов.
         """
-        return super().get_vendors_with_subscriptions(
-            instance
-        )  # Используем метод из миксина
+        return super().get_vendors(instance)  # Используем метод из миксина
 
     def get_products(self, instance):
         """
         Возвращает список продуктов, связанных с CVE через вендоров.
         """
-        return super().get_products_with_subscriptions(
-            instance
-        )  # Используем метод из миксина
+        return super().get_products(instance)  # Используем метод из миксина
 
     def get_cvss_score(self, instance):
         """
@@ -320,3 +316,24 @@ class CveTagSerializer(serializers.ModelSerializer):
 
         # Возвращаем все созданные или обновленные теги
         return created_tags
+
+
+class ExtendedProductListSerializer(serializers.ModelSerializer):
+    vendor = VendorSerializer()
+    is_subscribed = serializers.SerializerMethodField()
+    vendor_name = serializers.CharField(source="vendor.name", read_only=True)
+
+    class Meta:
+        model = Product
+        fields = ["id", "name", "vendor", "vendor_name", "is_subscribed"]
+
+    def get_is_subscribed(self, obj):
+        # Используем SubscriptionMixin из контекста сериализатора
+        subscription_mixin = self.context.get("subscription_mixin")
+        if subscription_mixin:
+            # Формируем полное имя продукта в формате "vendor$PRODUCT$product"
+            full_product_name = f"{obj.vendor.name}{PRODUCT_SEPARATOR}{obj.name}"
+            return subscription_mixin.get_subscription_status(
+                "product", full_product_name
+            )
+        return False

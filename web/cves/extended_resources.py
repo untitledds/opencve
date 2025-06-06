@@ -14,7 +14,6 @@ from .extended_utils import get_detailed_subscriptions, get_user_organization
 from projects.models import Project, get_default_subscriptions
 from users.models import UserTag, CveTag
 from cves.serializers import (
-    ProductListSerializer,
     WeaknessListSerializer,
 )
 from .extended_serializers import (
@@ -26,6 +25,7 @@ from .extended_serializers import (
     UserTagSerializer,
     CveTagSerializer,
     ExtendedVendorListSerializer,
+    ExtendedProductListSerializer,
 )
 from .extended_utils import extended_list_filtered_cves, get_products
 from .extended_mixins import SubscriptionMixin
@@ -160,7 +160,7 @@ class ExtendedVendorViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
-    serializer_class = ProductListSerializer
+    serializer_class = ExtendedProductListSerializer
     permission_classes = (permissions.IsAuthenticated,)
     lookup_field = "name"
     lookup_url_kwarg = "name"
@@ -172,14 +172,12 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
         """
         vendor_name = self.kwargs.get("vendor_name")
         search_query = self.request.GET.get("search", None)
+        queryset = Product.objects.select_related("vendor").order_by("name")
 
         if vendor_name:
             # Если указан vendor_name, фильтруем продукты по вендору
             vendor = get_object_or_404(Vendor, name=vendor_name)
-            queryset = Product.objects.filter(vendor=vendor).order_by("name").all()
-        else:
-            # Иначе берем все продукты
-            queryset = Product.objects.order_by("name").all()
+            queryset = queryset.filter(vendor=vendor)
 
         # Применяем фильтрацию по имени продукта, если есть параметр search
         if search_query:
@@ -216,7 +214,15 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
 
         # Добавляем информацию о вендоре, если он указан
         if vendor_name:
-            response_data["vendor"] = vendor_name
+            response_data.update(
+                {
+                    "vendor": vendor_name,
+                    "vendor_subscribed": subscription_mixin.get_subscription_status(
+                        "vendor",
+                        vendor_name,  # Используем переменную вместо kwargs для ясности
+                    ),
+                }
+            )
 
         return Response(response_data)
 
