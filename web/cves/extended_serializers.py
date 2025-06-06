@@ -319,21 +319,20 @@ class CveTagSerializer(serializers.ModelSerializer):
 
 
 class ExtendedProductListSerializer(serializers.ModelSerializer):
-    vendor = VendorSerializer()
     is_subscribed = serializers.SerializerMethodField()
-    vendor_name = serializers.CharField(source="vendor.name", read_only=True)
 
     class Meta:
         model = Product
-        fields = ["id", "name", "vendor", "vendor_name", "is_subscribed"]
+        fields = ["id", "name", "is_subscribed"]
 
     def get_is_subscribed(self, obj):
         # Используем SubscriptionMixin из контекста сериализатора
         subscription_mixin = self.context.get("subscription_mixin")
         if subscription_mixin:
-            # Формируем полное имя продукта в формате "vendor$PRODUCT$product"
-            full_product_name = f"{obj.vendor.name}{PRODUCT_SEPARATOR}{obj.name}"
-            return subscription_mixin.get_subscription_status(
-                "product", full_product_name
+            vendor_name = self.context.get(
+                "vendor_name", getattr(obj.vendor, "name", "")
             )
+            # Формируем полное имя продукта в формате "vendor$PRODUCT$product"
+            full_name = f"{vendor_name}{PRODUCT_SEPARATOR}{obj.name}"
+            return subscription_mixin.get_subscription_status("product", full_name)
         return False

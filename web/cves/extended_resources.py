@@ -193,36 +193,28 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
         queryset = self.get_queryset()
         page = self.paginate_queryset(queryset)
 
-        # Создаем миксин для подписок
         subscription_mixin = SubscriptionMixin()
         subscription_mixin.context = {"request": request}
 
-        if page is not None:
-            serializer = self.get_serializer(
-                page, many=True, context={"subscription_mixin": subscription_mixin}
-            )
-            return self.get_paginated_response(serializer.data)
-
-        # Сериализация данных
-        serializer = self.get_serializer(
-            queryset, many=True, context={"subscription_mixin": subscription_mixin}
-        )
-        response_data = {
-            "status": "success",
-            "products": serializer.data,
+        context = {
+            "subscription_mixin": subscription_mixin,
+            "vendor_name": vendor_name,  # Передаем имя вендора в контекст
         }
 
-        # Добавляем информацию о вендоре, если он указан
+        serializer = self.get_serializer(
+            page if page is not None else queryset, many=True, context=context
+        )
+
+        response_data = {"status": "success", "products": serializer.data}
+
         if vendor_name:
-            response_data.update(
-                {
-                    "vendor": vendor_name,
-                    "vendor_subscribed": subscription_mixin.get_subscription_status(
-                        "vendor",
-                        vendor_name,  # Используем переменную вместо kwargs для ясности
-                    ),
-                }
+            response_data["vendor"] = vendor_name
+            response_data["vendor_subscribed"] = (
+                subscription_mixin.get_subscription_status("vendor", vendor_name)
             )
+
+        if page is not None:
+            return self.get_paginated_response(response_data)
 
         return Response(response_data)
 
