@@ -28,6 +28,7 @@ from .extended_serializers import (
     ExtendedVendorListSerializer,
 )
 from .extended_utils import extended_list_filtered_cves, get_products
+from .extended_mixins import SubscriptionMixin
 
 # from opencve.utils import is_valid_uuid
 from cves.utils import list_to_dict_vendors
@@ -128,11 +129,19 @@ class ExtendedVendorViewSet(viewsets.ReadOnlyModelViewSet):
         queryset = self.get_queryset()
         page = self.paginate_queryset(queryset)
 
+        # Создаем миксин для подписок
+        subscription_mixin = SubscriptionMixin()
+        subscription_mixin.context = {"request": request}
+
         if page is not None:
-            serializer = self.get_serializer(page, many=True)
+            serializer = self.get_serializer(
+                page, many=True, context={"subscription_mixin": subscription_mixin}
+            )
             return self.get_paginated_response(serializer.data)
 
-        serializer = self.get_serializer(queryset, many=True)
+        serializer = self.get_serializer(
+            queryset, many=True, context={"subscription_mixin": subscription_mixin}
+        )
         return Response({"status": "success", "vendors": serializer.data})
 
     @action(detail=False, methods=["get"])
@@ -186,12 +195,20 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
         queryset = self.get_queryset()
         page = self.paginate_queryset(queryset)
 
+        # Создаем миксин для подписок
+        subscription_mixin = SubscriptionMixin()
+        subscription_mixin.context = {"request": request}
+
         if page is not None:
-            serializer = self.get_serializer(page, many=True)
+            serializer = self.get_serializer(
+                page, many=True, context={"subscription_mixin": subscription_mixin}
+            )
             return self.get_paginated_response(serializer.data)
 
         # Сериализация данных
-        serializer = self.get_serializer(queryset, many=True)
+        serializer = self.get_serializer(
+            queryset, many=True, context={"subscription_mixin": subscription_mixin}
+        )
         response_data = {
             "status": "success",
             "products": serializer.data,

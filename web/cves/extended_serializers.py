@@ -6,6 +6,7 @@ from .extended_mixins import CveProductsMixin
 # from cves.serializers import Vendor, Product
 from users.models import CveTag, UserTag
 from cves.utils import list_to_dict_vendors
+from cves.constants import PRODUCT_SEPARATOR
 
 
 CVSS_FIELDS = ["cvssV4_0", "cvssV3_1", "cvssV3_0", "cvssV2_0"]
@@ -38,13 +39,17 @@ class ExtendedCveListSerializer(serializers.ModelSerializer, CveProductsMixin):
         """
         Возвращает словарь вендоров и их продуктов.
         """
-        return super().get_vendors(instance)  # Используем метод из миксина
+        return super().get_vendors_with_subscriptions(
+            instance
+        )  # Используем метод из миксина
 
     def get_products(self, instance):
         """
         Возвращает список продуктов, связанных с CVE через вендоров.
         """
-        return super().get_products(instance)  # Используем метод из миксина
+        return super().get_products_with_subscriptions(
+            instance
+        )  # Используем метод из миксина
 
     def get_cvss_score(self, instance):
         """
@@ -206,6 +211,7 @@ class VendorSerializer(serializers.ModelSerializer):
 
 class ExtendedVendorListSerializer(serializers.ModelSerializer):
     products_count = serializers.SerializerMethodField()
+    is_subscribed = serializers.SerializerMethodField()
 
     class Meta:
         model = Vendor
@@ -214,7 +220,8 @@ class ExtendedVendorListSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "name",
-            "products_count",  # Новое поле
+            "products_count",
+            "is_subscribed",
         ]
 
     def get_products_count(self, obj):
@@ -225,13 +232,29 @@ class ExtendedVendorListSerializer(serializers.ModelSerializer):
         """
         return obj.products.count()
 
+    def get_is_subscribed(self, obj):
+        # Используем SubscriptionMixin из контекста сериализатора
+        subscription_mixin = self.context.get("subscription_mixin")
+        if subscription_mixin:
+            return subscription_mixin.get_subscription_status("vendor", obj.name)
+        return False
+
 
 class ProductSerializer(serializers.ModelSerializer):
     vendor = VendorSerializer()
+    is_subscribed = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
-        fields = ["id", "name", "vendor"]
+        fields = ["id", "name", "vendor", "is_subscribed"]
+
+    def get_is_subscribed(self, obj):
+        # Формируем полное имя продукта (vendor$PRODUCT$product)
+        full_name = f"{obj.vendor.name}{PRODUCT_SEPARATOR}{obj.name}"
+        subscription_mixin = self.context.get("subscription_mixin")
+        if subscription_mixin:
+            return subscription_mixin.get_subscription_status("product", full_name)
+        return False
 
 
 class DetailedSubscriptionSerializer(serializers.Serializer):
