@@ -492,7 +492,7 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
                         {
                             "type": "product",
                             "id": str(product.id),
-                            "name": f"{vendor_part}{PRODUCT_SEPARATOR}{p_name}",
+                            "name": f"{p_name}",
                         }
                     )
 
