@@ -27,7 +27,11 @@ from .extended_serializers import (
     ExtendedVendorListSerializer,
     ExtendedProductListSerializer,
 )
-from .extended_utils import extended_list_filtered_cves, get_products
+from .extended_utils import (
+    extended_list_filtered_cves,
+    get_products,
+    OptionalPagination,
+)
 from .extended_mixins import SubscriptionMixin
 
 # from opencve.utils import is_valid_uuid
@@ -104,8 +108,9 @@ class ExtendedVendorViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ExtendedVendorListSerializer
     permission_classes = (permissions.IsAuthenticated,)
     queryset = Vendor.objects.order_by("name").all()
-    lookup_field = "name"
-    lookup_url_kwarg = "name"
+    lookup_field = "id"
+    lookup_url_kwarg = "id"
+    pagination_class = OptionalPagination
 
     def get_queryset(self):
         """
@@ -171,21 +176,22 @@ class ExtendedVendorViewSet(viewsets.ReadOnlyModelViewSet):
 class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ExtendedProductListSerializer
     permission_classes = (permissions.IsAuthenticated,)
-    lookup_field = "name"
-    lookup_url_kwarg = "name"
+    lookup_field = "id"
+    lookup_url_kwarg = "id"
+    pagination_class = OptionalPagination
 
     def get_queryset(self):
         """
         Переопределение queryset для поддержки поиска по всем продуктам
         или только по продуктам конкретного вендора.
         """
-        vendor_name = self.kwargs.get("vendor_name")
+        vendor_id = self.kwargs.get("id")  # Используется lookup_url_kwarg из ViewSet
         search_query = self.request.GET.get("search", None)
         queryset = Product.objects.select_related("vendor").order_by("name")
 
-        if vendor_name:
-            # Если указан vendor_name, фильтруем продукты по вендору
-            vendor = get_object_or_404(Vendor, name=vendor_name)
+        if vendor_id:
+            # Фильтруем продукты по ID вендора
+            vendor = get_object_or_404(Vendor, id=vendor_id)
             queryset = queryset.filter(vendor=vendor)
 
         # Применяем фильтрацию по имени продукта, если есть параметр search

@@ -126,3 +126,18 @@ def get_user_organization(user):
     """
     membership = Membership.objects.filter(user=user).first()
     return membership.organization if membership else None
+
+
+from rest_framework.pagination import PageNumberPagination
+
+
+class OptionalPagination(PageNumberPagination):
+    """Пагинатор с возможностью отключения через параметр page_size=all"""
+
+    page_size_query_param = "page_size"
+    max_page_size = 1000
+
+    def paginate_queryset(self, queryset, request, view=None):
+        if request.query_params.get(self.page_size_query_param) == "all":
+            return None  # Отключаем пагинацию
+        return super().paginate_queryset(queryset, request, view)
