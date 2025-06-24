@@ -227,6 +227,31 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
 
         return Response(response_data)
 
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+
+        subscription_mixin = SubscriptionMixin()
+        subscription_mixin.context = {"request": request}
+
+        serializer = self.get_serializer(
+            instance,
+            context={
+                "subscription_mixin": subscription_mixin,
+                "vendor_name": instance.vendor.name,
+            },
+        )
+
+        response_data = {
+            "status": "success",
+            "product": serializer.data,
+            "vendor": instance.vendor.name,
+            "vendor_subscribed": subscription_mixin.get_subscription_status(
+                "vendor", instance.vendor.name
+            ),
+        }
+
+        return Response(response_data)
+
 
 class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
     permission_classes = [permissions.IsAuthenticated]
