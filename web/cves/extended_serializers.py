@@ -330,7 +330,7 @@ class CveTagSerializer(serializers.ModelSerializer):
 
 class ExtendedProductListSerializer(serializers.ModelSerializer):
     is_subscribed = serializers.SerializerMethodField()
-    vendor = VendorSerializer(read_only=True)
+    vendor = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -342,3 +342,20 @@ class ExtendedProductListSerializer(serializers.ModelSerializer):
         if subscription_mixin:
             return subscription_mixin.get_subscription_status("product", full_name)
         return False
+
+    def get_vendor(self, obj):
+        """Возвращает данные вендора или None, если нужно скрыть (для /vendor/*/product)"""
+        if self.context.get("hide_vendor_in_product", False):
+            return None
+
+        return {
+            "id": str(obj.vendor.id),
+            "name": obj.vendor.name,
+            "is_subscribed": self._get_vendor_subscription_status(obj.vendor),
+        }
+
+    def _get_vendor_subscription_status(self, vendor):
+        subscription_mixin = self.context.get("subscription_mixin")
+        if not subscription_mixin:
+            return False
+        return subscription_mixin.get_subscription_status("vendor", vendor.name)

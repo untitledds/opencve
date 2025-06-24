@@ -198,15 +198,27 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
         """
         Возвращает список продуктов с поддержкой поиска.
         """
-        vendor_name = self.kwargs.get("vendor_name")
         queryset = self.get_queryset()
         page = self.paginate_queryset(queryset)
 
         subscription_mixin = SubscriptionMixin()
         subscription_mixin.context = {"request": request}
+        vendor_name = self.kwargs.get("vendor_name")
+        vendor_data = None
+
+        if vendor_name:
+            vendor = get_object_or_404(Vendor, name=vendor_name)
+            vendor_data = {
+                "id": str(vendor.id),
+                "name": vendor.name,
+                "is_subscribed": subscription_mixin.get_subscription_status(
+                    "vendor", vendor_name
+                ),
+            }
 
         context = {
             "subscription_mixin": subscription_mixin,
+            "hide_vendor_in_product": bool(vendor_name),
             "vendor_name": vendor_name,  # Передаем имя вендора в контекст
         }
 
@@ -216,11 +228,9 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
 
         response_data = {"status": "success", "products": serializer.data}
 
-        if vendor_name:
-            response_data["vendor"] = vendor_name
-            response_data["vendor_subscribed"] = (
-                subscription_mixin.get_subscription_status("vendor", vendor_name)
-            )
+        # Добавляем вендора в корень для /vendor/*/product
+        if vendor_data:
+            response_data["vendor"] = vendor_data
 
         if page is not None:
             return self.get_paginated_response(response_data)
@@ -232,22 +242,27 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
 
         subscription_mixin = SubscriptionMixin()
         subscription_mixin.context = {"request": request}
+        context = {
+            "subscription_mixin": subscription_mixin,
+            "vendor_name": instance.vendor.name,
+            "hide_vendor_in_product": False,
+        }
 
         serializer = self.get_serializer(
             instance,
-            context={
-                "subscription_mixin": subscription_mixin,
-                "vendor_name": instance.vendor.name,
-            },
+            context,
         )
 
         response_data = {
             "status": "success",
             "product": serializer.data,
-            "vendor": instance.vendor.name,
-            "vendor_subscribed": subscription_mixin.get_subscription_status(
-                "vendor", instance.vendor.name
-            ),
+            "vendor": {
+                "id": str(instance.vendor.id),
+                "name": instance.vendor.name,
+                "is_subscribed": subscription_mixin.get_subscription_status(
+                    "vendor", instance.vendor.name
+                ),
+            },
         }
 
         return Response(response_data)
