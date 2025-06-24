@@ -508,17 +508,27 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
         """
         if error_message:
             return Response({"status": "error", "message": error_message}, status=400)
-
         if success_message:
-            data["message"] = success_message
+            response_data = {"status": "success", "message": success_message}
+            if data:
+                # If data is present, include it along with message
+                if isinstance(data, dict):
+                    response_data.update(data)
+                else:
+                    response_data["data"] = data  # Wrap lists or other types safely
+            return Response(response_data)
 
-        if not data:  # Если данных нет, возвращаем 204
+        if not data:
             return Response(
                 {"status": "success", "message": success_message},
                 status=status.HTTP_204_NO_CONTENT,
             )
 
-        return Response({"status": "success", **data})
+        # Handle both dict and list types safely
+        if isinstance(data, dict):
+            return Response({"status": "success", **data})
+        else:
+            return Response({"status": "success", "data": data})
 
 
 class UserTagViewSet(viewsets.ModelViewSet):
