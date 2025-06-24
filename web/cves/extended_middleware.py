@@ -5,7 +5,6 @@ from django.db import transaction
 from organizations.models import Organization, Membership
 from projects.models import Project, get_default_subscriptions
 from django.utils.timezone import now
-from allauth.account.models import EmailAddress
 import logging
 
 logger = logging.getLogger(__name__)
@@ -100,16 +99,29 @@ class ProxyHeaderAuthenticationMiddleware:
         )
         try:
             with transaction.atomic():
-                (
-                    org,
-                    org_created,
-                ) = Organization.objects.select_for_update().get_or_create(
-                    name=self.organization_name
-                )
+                try:
+                    (
+                        org,
+                        org_created,
+                    ) = Organization.objects.select_for_update().get_or_create(
+                        name=self.organization_name
+                    )
+                except Organization.MultipleObjectsReturned:
+                    logger.warning(
+                        f"Multiple organizations found with name '{self.organization_name}'"
+                    )
+                    org = Organization.objects.filter(
+                        name=self.organization_name
+                    ).first()
+                    if not org:
+                        raise  # Если не нашли ни одной — ошибка
                 self._ensure_default_project_exists(org)
                 user, u_created = User.objects.get_or_create(
-                    username=username, defaults={"email": email, "password": None}
+                    username=username, defaults={"email": email}
                 )
+                if u_created:
+                    user.set_unusable_password()
+                    user.save()
                 if u_created or user.email != email:
                     user.email = email
                     user.save()
@@ -130,7 +142,11 @@ class ProxyHeaderAuthenticationMiddleware:
             logger.exception("Proxy auth failed")
 
     def _ensure_default_project_exists(self, organization):
-        if not Project.objects.filter(organization=organization).exists():
+        project_exists = Project.objects.filter(
+            name=self.default_project_name, organization=organization
+        ).exists()
+
+        if not project_exists:
             Project.objects.create(
                 name=self.default_project_name,
                 organization=organization,
@@ -144,41 +160,45 @@ class ProxyHeaderAuthenticationMiddleware:
         Обрабатывает верификацию email для пользователя.
         Создает/обновляет запись EmailAddress в allauth.
         """
+        from allauth.account.models import EmailAddress
+
         try:
-            email_address, created = EmailAddress.objects.get_or_create(
-                user=user,
-                email=user.email,
-                defaults={"verified": True, "primary": True},
-            )
+            # Блокируем таблицу для обновления
+            with transaction.atomic():
+                # Получаем все существующие записи email для пользователя
+                emails = EmailAddress.objects.select_for_update().filter(user=user)
 
-            if not created:
-                # Если email изменился или не верифицирован
-                needs_update = False
+                # Убираем флаг primary с других email
+                if emails.exists():
+                    emails.filter(primary=True).update(primary=False)
 
-                if email_address.email != user.email:
-                    email_address.email = user.email
-                    needs_update = True
+                # Пытаемся получить или создать основной email
+                email_address, created = EmailAddress.objects.get_or_create(
+                    user=user,
+                    email=user.email,
+                    defaults={"verified": True, "primary": True},
+                )
 
-                if not email_address.verified:
-                    email_address.verified = True
-                    needs_update = True
+                if not created:
+                    needs_update = False
 
-                if not email_address.primary:
-                    email_address.primary = True
-                    needs_update = True
+                    if not email_address.verified:
+                        email_address.verified = True
+                        needs_update = True
 
-                if needs_update:
-                    email_address.save()
-                    logger.info(f"Updated email verification for user {user.username}")
+                    if not email_address.primary:
+                        email_address.primary = True
+                        needs_update = True
 
-            logger.debug(
-                f"Email {'created' if created else 'updated'} "
-                f"for {user.username}: {user.email} (verified: True)"
-            )
+                    if needs_update:
+                        email_address.save()
+
+                logger.info(
+                    f"Email {'created' if created else 'updated'} for {user.username}"
+                )
 
         except Exception as e:
             logger.error(
                 f"Failed to handle email verification for {user.username}: {str(e)}",
                 exc_info=True,
             )
-            # Продолжаем работу даже при ошибке верификации email
