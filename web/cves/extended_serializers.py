@@ -262,6 +262,7 @@ class ProductSerializer(serializers.ModelSerializer):
 
         return data
 
+
 class DetailedSubscriptionSerializer(serializers.Serializer):
     project_id = serializers.UUIDField(help_text="UUID проекта.")
     subscriptions = ProjectSubscriptionsSerializer(help_text="Подписки проекта.")
@@ -330,9 +331,10 @@ class CveTagSerializer(serializers.ModelSerializer):
 class ExtendedProductListSerializer(serializers.ModelSerializer):
     is_subscribed = serializers.SerializerMethodField()
     vendor = VendorSerializer(read_only=True)
+
     class Meta:
         model = Product
-        fields = ["id", "name", "vendor","is_subscribed"]
+        fields = ["id", "name", "vendor", "is_subscribed"]
 
     def get_is_subscribed(self, obj):
         full_name = f"{obj.vendor.name}{PRODUCT_SEPARATOR}{obj.name}"
