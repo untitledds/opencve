@@ -185,7 +185,9 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
         Переопределение queryset для поддержки поиска по всем продуктам
         или только по продуктам конкретного вендора.
         """
-        vendor_id = self.kwargs.get("id")  # Используется lookup_url_kwarg из ViewSet
+        vendor_id = self.kwargs.get(
+            "vendor_id"
+        )  # Используется lookup_url_kwarg из ViewSet
         search_query = self.request.GET.get("search", None)
         queryset = Product.objects.select_related("vendor").order_by("name")
 
@@ -209,7 +211,7 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
 
         subscription_mixin = SubscriptionMixin()
         subscription_mixin.context = {"request": request}
-        vendor_id = self.kwargs.get("id")
+        vendor_id = self.kwargs.get("vendor_id")
         vendor_data = None
         vendor_name = None
 
