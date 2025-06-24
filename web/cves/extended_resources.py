@@ -253,19 +253,7 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
             context=context,
         )
 
-        response_data = {
-            "status": "success",
-            "product": serializer.data,
-            "vendor": {
-                "id": str(instance.vendor.id),
-                "name": instance.vendor.name,
-                "is_subscribed": subscription_mixin.get_subscription_status(
-                    "vendor", instance.vendor.name
-                ),
-            },
-        }
-
-        return Response(response_data)
+        return Response(serializer.data)
 
 
 class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
@@ -320,24 +308,23 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
     @action(detail=False, methods=["get"])
     def user_subscriptions(self, request):
         """
-        Получить все подписки пользователя.
+        Получить все подписки пользователя в формате:
+        [
+            {"type": "vendor", "id": "vendor_id", "name": "vendor_name"},
+            {"type": "product", "id": "product_id", "name": "vendor$PRODUCT$product_name"}
+        ]
         """
         organization = get_user_organization(request.user)
         if not organization:
-            return self._return_response({})
+            return self._return_response([])
 
         projects = Project.objects.filter(organization=organization)
         subscriptions = self._get_subscriptions(projects=projects)
 
-        if not subscriptions["vendors"] and not subscriptions["products"]:
-            return self._return_response({})
+        if not subscriptions:
+            return self._return_response([])
 
-        return self._return_response(
-            {
-                "vendors": list(subscriptions["vendors"]),
-                "products": list(subscriptions["products"]),
-            }
-        )
+        return self._return_response(subscriptions)
 
     @action(detail=False, methods=["get"])
     def detailed_project_subscriptions(self, request):
@@ -477,21 +464,38 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
 
     def _get_subscriptions(self, project=None, projects=None):
         """
-        Возвращает подписки для проекта или списка проектов.
-        :param project: Проект, для которого возвращаются подписки.
-        :param projects: Список проектов, для которых возвращаются подписки.
-        :return: Словарь с подписками.
+        Возвращает подписки для проекта или списка проектов в формате:
+        [{"type": "vendor", "id": "vendor_id", "name": "vendor_name"}, ...]
         """
-        subscriptions = {"vendors": set(), "products": set()}
+        subscriptions = []
 
         if project:
             projects = [project]
+
         for project in projects:
-            project_vendors = project.subscriptions.get("vendors", [])
-            subscriptions["vendors"].update(project_vendors)
-            for product in project.subscriptions.get("products", []):
-                _, p_name = product.split(PRODUCT_SEPARATOR)
-                subscriptions["products"].add(p_name)
+            # Обработка подписок на вендоров
+            for vendor_name in project.subscriptions.get("vendors", []):
+                vendor = Vendor.objects.filter(name=vendor_name).first()
+                if vendor:
+                    subscriptions.append(
+                        {"type": "vendor", "id": str(vendor.id), "name": vendor.name}
+                    )
+
+            # Обработка подписок на продукты
+            for product_name in project.subscriptions.get("products", []):
+                vendor_part, p_name = product_name.split(PRODUCT_SEPARATOR)
+                product = Product.objects.filter(
+                    name=p_name, vendor__name=vendor_part
+                ).first()
+                if product:
+                    subscriptions.append(
+                        {
+                            "type": "product",
+                            "id": str(product.id),
+                            "name": f"{vendor_part}{PRODUCT_SEPARATOR}{p_name}",
+                        }
+                    )
+
         return subscriptions
 
     def _return_response(self, data, success_message=None, error_message=None):
