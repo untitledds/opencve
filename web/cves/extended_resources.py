@@ -412,14 +412,14 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
             return self._return_response(
                 {},
                 error_message="Invalid object type: must be 'vendor' or 'product'",
-                status=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_400_BAD_REQUEST,
             )
 
         if action not in ("subscribe", "unsubscribe"):
             return self._return_response(
                 {},
                 error_message="Invalid action: must be 'subscribe' or 'unsubscribe'",
-                status=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_400_BAD_REQUEST,
             )
 
         config = OBJ_CONFIG[obj_type]
@@ -432,7 +432,7 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
             return self._return_response(
                 {},
                 error_message=f"{obj_type.capitalize()} with id {obj_id} not found",
-                status=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_400_BAD_REQUEST,
             )
 
         # 3. Работа с подписками
@@ -444,7 +444,7 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
                 return self._return_response(
                     {},
                     error_message=f"Already subscribed to this {obj_type}",
-                    status=status.HTTP_400_BAD_REQUEST,
+                    status_code=status.HTTP_400_BAD_REQUEST,
                 )
             subscriptions.add(obj_name)
             message = f"Successfully subscribed to {obj_type}: {obj_name}"
@@ -454,7 +454,7 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
                 return self._return_response(
                     {},
                     error_message=f"Not subscribed to this {obj_type}",
-                    status=status.HTTP_400_BAD_REQUEST,
+                    status_code=status.HTTP_400_BAD_REQUEST,
                 )
             subscriptions.remove(obj_name)
             message = f"Successfully unsubscribed from {obj_type}: {obj_name}"
@@ -476,7 +476,7 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
             },
         }
 
-        return self._return_response(response_data, status=status.HTTP_200_OK)
+        return self._return_response(response_data, status_code=status.HTTP_200_OK)
 
     def _get_project_subscriptions(self, project):
         """
@@ -554,37 +554,52 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
 
         return subscriptions
 
-    def _return_response(self, data, success_message=None, error_message=None):
+    def _return_response(
+        self, data, success_message=None, error_message=None, status_code=None
+    ):
         """
         Возвращает Response с данными или сообщением об ошибке.
+
         :param data: Данные для возврата.
         :param success_message: Сообщение об успешной операции.
         :param error_message: Сообщение об ошибке.
+        :param status_code: HTTP-статус код ответа (например, 200, 400).
         :return: Response.
         """
         if error_message:
-            return Response({"status": "error", "message": error_message}, status=400)
+            return Response(
+                {"status": "error", "message": error_message},
+                status=status_code or status.HTTP_400_BAD_REQUEST,
+            )
+
         if success_message:
             response_data = {"status": "success", "message": success_message}
             if data:
-                # If data is present, include it along with message
                 if isinstance(data, dict):
                     response_data.update(data)
                 else:
-                    response_data["data"] = data  # Wrap lists or other types safely
-            return Response(response_data)
+                    response_data["data"] = data
+            return Response(response_data, status=status_code or status.HTTP_200_OK)
 
         if not data:
             return Response(
-                {"status": "success", "message": success_message},
-                status=status.HTTP_204_NO_CONTENT,
+                {
+                    "status": "success",
+                    "message": success_message or "Operation successful",
+                },
+                status=status_code or status.HTTP_204_NO_CONTENT,
             )
 
         # Handle both dict and list types safely
         if isinstance(data, dict):
-            return Response({"status": "success", **data})
+            return Response(
+                {"status": "success", **data}, status=status_code or status.HTTP_200_OK
+            )
         else:
-            return Response({"status": "success", "data": data})
+            return Response(
+                {"status": "success", "data": data},
+                status=status_code or status.HTTP_200_OK,
+            )
 
 
 class UserTagViewSet(viewsets.ModelViewSet):
