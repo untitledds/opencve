@@ -250,7 +250,7 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
 
         serializer = self.get_serializer(
             instance,
-            context,
+            context=context,
         )
 
         response_data = {

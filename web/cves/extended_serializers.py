@@ -359,3 +359,9 @@ class ExtendedProductListSerializer(serializers.ModelSerializer):
         if not subscription_mixin:
             return False
         return subscription_mixin.get_subscription_status("vendor", vendor.name)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if self.context.get("hide_vendor_in_product", False):
+            data.pop("vendor", None)
+        return data
