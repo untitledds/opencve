@@ -209,23 +209,23 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
 
         subscription_mixin = SubscriptionMixin()
         subscription_mixin.context = {"request": request}
-        vendor_name = self.kwargs.get("vendor_name")
+        vendor_id = self.kwargs.get("id")
         vendor_data = None
 
-        if vendor_name:
-            vendor = get_object_or_404(Vendor, name=vendor_name)
+        if vendor_id:
+            vendor = get_object_or_404(Vendor, id=vendor_id)
             vendor_data = {
                 "id": str(vendor.id),
                 "name": vendor.name,
                 "is_subscribed": subscription_mixin.get_subscription_status(
-                    "vendor", vendor_name
+                    "vendor", vendor.name
                 ),
             }
 
         context = {
             "subscription_mixin": subscription_mixin,
-            "hide_vendor_in_product": bool(vendor_name),
-            "vendor_name": vendor_name,  # Передаем имя вендора в контекст
+            "hide_vendor_in_product": bool(vendor_id),
+            "vendor_name": vendor.name,  # Передаем имя вендора в контекст
         }
 
         serializer = self.get_serializer(
