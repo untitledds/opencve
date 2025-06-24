@@ -144,6 +144,15 @@ class ExtendedVendorViewSet(viewsets.ReadOnlyModelViewSet):
         )
         return Response({"status": "success", "vendors": serializer.data})
 
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        subscription_mixin = SubscriptionMixin()
+        subscription_mixin.context = {"request": request}
+        serializer = self.get_serializer(
+            instance, context={"subscription_mixin": subscription_mixin}
+        )
+        return Response(serializer.data)
+
     @action(detail=False, methods=["get"])
     def search(self, request):
         """

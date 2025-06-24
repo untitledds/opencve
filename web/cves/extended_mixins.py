@@ -36,11 +36,7 @@ class SubscriptionMixin:
                 return obj_name in subscribed_items
             elif obj_type == "product":
                 subscribed_items = project.subscriptions.get("products", [])
-                # Для продуктов сравниваем полное имя (vendor$PRODUCT$product)
-                return any(
-                    item.endswith(PRODUCT_SEPARATOR + obj_name)
-                    for item in subscribed_items
-                )
+                return obj_name in subscribed_items
             return False
         except Exception as e:
             logger.error(f"Error checking subscription: {e}")
@@ -55,10 +51,12 @@ class SubscriptionMixin:
 
         organization = get_user_organization(request.user)
         if not organization:
+            logger.error(f"{request.user} not found in org")
+            organization = getattr(settings, "GLOBAL_ORGANIZATION_NAME", "default")
             return None
 
         default_project_name = getattr(
-            settings, "GLOBAL_DEFAULT_PROJECT_NAME", "Default Project"
+            settings, "GLOBAL_DEFAULT_PROJECT_NAME", "default"
         )
         return Project.objects.filter(
             name=default_project_name, organization=organization
