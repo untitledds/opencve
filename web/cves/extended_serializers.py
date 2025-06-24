@@ -237,7 +237,7 @@ class ExtendedVendorListSerializer(serializers.ModelSerializer):
 
 
 class ProductSerializer(serializers.ModelSerializer):
-    vendor = VendorSerializer()
+    vendor = VendorSerializer(required=False)
     is_subscribed = serializers.SerializerMethodField()
 
     class Meta:
@@ -246,12 +246,21 @@ class ProductSerializer(serializers.ModelSerializer):
 
     def get_is_subscribed(self, obj):
         # Формируем полное имя продукта (vendor$PRODUCT$product)
-        full_name = f"{obj.vendor.name}{PRODUCT_SEPARATOR}{obj.name}"
         subscription_mixin = self.context.get("subscription_mixin")
         if subscription_mixin:
+            full_name = f"{obj.vendor.name}{PRODUCT_SEPARATOR}{obj.name}"
             return subscription_mixin.get_subscription_status("product", full_name)
         return False
 
+    def to_representation(self, instance):
+        """Кастомизация представления в зависимости от контекста"""
+        data = super().to_representation(instance)
+
+        # Если в контексте указано vendor_name, убираем вендора из основного ответа
+        if self.context.get("vendor_name") and "vendor" in data:
+            data.pop("vendor", None)
+
+        return data
 
 class DetailedSubscriptionSerializer(serializers.Serializer):
     project_id = serializers.UUIDField(help_text="UUID проекта.")
@@ -320,19 +329,14 @@ class CveTagSerializer(serializers.ModelSerializer):
 
 class ExtendedProductListSerializer(serializers.ModelSerializer):
     is_subscribed = serializers.SerializerMethodField()
-
+    vendor = VendorSerializer(read_only=True)
     class Meta:
         model = Product
-        fields = ["id", "name", "is_subscribed"]
+        fields = ["id", "name", "vendor","is_subscribed"]
 
     def get_is_subscribed(self, obj):
-        # Используем SubscriptionMixin из контекста сериализатора
+        full_name = f"{obj.vendor.name}{PRODUCT_SEPARATOR}{obj.name}"
         subscription_mixin = self.context.get("subscription_mixin")
         if subscription_mixin:
-            vendor_name = self.context.get(
-                "vendor_name", getattr(obj.vendor, "name", "")
-            )
-            # Формируем полное имя продукта в формате "vendor$PRODUCT$product"
-            full_name = f"{vendor_name}{PRODUCT_SEPARATOR}{obj.name}"
             return subscription_mixin.get_subscription_status("product", full_name)
         return False
