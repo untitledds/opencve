@@ -391,46 +391,92 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
 
     def _process_subscription(self, project, obj_id, obj_type, action):
         """
-        Выполняет логику подписки/отписки на вендора или продукта.
-        :param project: Проект, для которого выполняется действие.
-        :param obj_id: UUID объекта (вендора или продукта).
-        :param obj_type: Тип объекта ("vendor" или "product").
-        :param action: Действие ("subscribe" или "unsubscribe").
-        :return: Ответ с измененными подписками и статусом операции.
+        Обрабатывает подписку/отписку на vendor/product.
+        Возвращает:
+        - 400 при ошибках валидации
+        - 400 если объект не найден
+        - 200 с актуальными подписками при успехе
         """
-        if obj_type == "vendor":
-            key = "vendors"
-            obj = get_object_or_404(Vendor, id=obj_id)
-            obj_name = obj.name
-        elif obj_type == "product":
-            key = "products"
-            obj = get_object_or_404(Product, id=obj_id)
-            obj_name = obj.vendored_name
-        else:
-            return self._return_response({}, error_message="Invalid object type")
 
-        subscriptions = set(project.subscriptions.get(key, []))
+        OBJ_CONFIG = {
+            "vendor": {"model": Vendor, "name_attr": "name", "key": "vendors"},
+            "product": {
+                "model": Product,
+                "name_attr": "vendored_name",
+                "key": "products",
+            },
+        }
 
+        # 1. Валидация входных данных
+        if obj_type not in OBJ_CONFIG:
+            return self._return_response(
+                {},
+                error_message="Invalid object type: must be 'vendor' or 'product'",
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if action not in ("subscribe", "unsubscribe"):
+            return self._return_response(
+                {},
+                error_message="Invalid action: must be 'subscribe' or 'unsubscribe'",
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        config = OBJ_CONFIG[obj_type]
+
+        # 2. Получение объекта
+        try:
+            obj = config["model"].objects.get(id=obj_id)
+            obj_name = getattr(obj, config["name_attr"])
+        except config["model"].DoesNotExist:
+            return self._return_response(
+                {},
+                error_message=f"{obj_type.capitalize()} with id {obj_id} not found",
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 3. Работа с подписками
+        subscriptions = set(project.subscriptions.get(config["key"], []))
+
+        # 4. Логика подписки/отписки
         if action == "subscribe":
+            if obj_name in subscriptions:
+                return self._return_response(
+                    {},
+                    error_message=f"Already subscribed to this {obj_type}",
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             subscriptions.add(obj_name)
-            message = f"{obj_type.capitalize()} {obj_name} subscribed successfully"
-        else:
+            message = f"Successfully subscribed to {obj_type}: {obj_name}"
+
+        else:  # unsubscribe
             if obj_name not in subscriptions:
                 return self._return_response(
-                    {}, error_message=f"Not subscribed to this {obj_type}"
+                    {},
+                    error_message=f"Not subscribed to this {obj_type}",
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
             subscriptions.remove(obj_name)
-            message = f"{obj_type.capitalize()} {obj_name} unsubscribed successfully"
+            message = f"Successfully unsubscribed from {obj_type}: {obj_name}"
 
-        project.subscriptions[key] = list(subscriptions)
-        project.save()
+        # 5. Сохранение изменений
+        with transaction.atomic():
+            project.subscriptions[config["key"]] = list(subscriptions)
+            project.save(update_fields=["subscriptions"])
 
-        return self._return_response(
-            {
-                "subscriptions": self._get_project_subscriptions(project),
-                "message": message,
-            }
-        )
+        # 6. Формирование ответа
+        response_data = {
+            "subscriptions": self._get_subscriptions(project=project),
+            "message": message,
+            "changed": {
+                "type": obj_type,
+                "id": str(obj.id),
+                "name": obj_name,
+                "action": action,
+            },
+        }
+
+        return self._return_response(response_data, status=status.HTTP_200_OK)
 
     def _get_project_subscriptions(self, project):
         """
