@@ -1,18 +1,25 @@
 from rest_framework import serializers
 import json
 from cves.models import Cve, Product, Vendor
-from .extended_mixins import CveProductsMixin
-
-# from cves.serializers import Vendor, Product
 from users.models import CveTag, UserTag
 from cves.utils import list_to_dict_vendors
 from cves.constants import PRODUCT_SEPARATOR
+from .extended_utils import (
+    get_cvss_data,
+    get_humanized_title,
+    get_cvss_human_score,
+    get_vendors_list,
+    get_products_list,
+    get_vendors_with_subscriptions,
+    get_products_with_subscriptions,
+    get_subscription_status,
+)
 
 
 CVSS_FIELDS = ["cvssV4_0", "cvssV3_1", "cvssV3_0", "cvssV2_0"]
 
 
-class ExtendedCveListSerializer(serializers.ModelSerializer, CveProductsMixin):
+class ExtendedCveListSerializer(serializers.ModelSerializer):
     cvss_score = serializers.SerializerMethodField()
     cvss_human_score = serializers.SerializerMethodField()
     title = serializers.SerializerMethodField()
@@ -36,29 +43,23 @@ class ExtendedCveListSerializer(serializers.ModelSerializer, CveProductsMixin):
         ]
 
     def get_vendors(self, instance):
-        """
-        Возвращает словарь вендоров и их продуктов.
-        """
-        return super().get_vendors(instance)  # Используем метод из миксина
+        return get_vendors_list(instance)
 
     def get_products(self, instance):
-        """
-        Возвращает список продуктов, связанных с CVE через вендоров.
-        """
-        return super().get_products(instance)  # Используем метод из миксина
+        return get_products_list(instance)
 
     def get_cvss_score(self, instance):
-        """
-        Возвращает CVSS score из первой доступной версии CVSS.
-        """
-        cvss = self._get_cvss_data(instance)
+        cvss = get_cvss_data(instance)
         return cvss["score"] if cvss else None
 
     def get_title(self, instance):
-        """
-        Возвращает title экземпляра или сгенерированный заголовок.
-        """
-        return super().get_title(instance)
+        if instance.title and instance.title.strip():
+            return instance.title
+        return get_humanized_title(
+            cvss_human_score=self.get_cvss_human_score(instance),
+            cve_id=instance.cve_id,
+            vendors=instance.vendors,
+        )
 
     def get_tags(self, instance):
         if (
@@ -71,8 +72,12 @@ class ExtendedCveListSerializer(serializers.ModelSerializer, CveProductsMixin):
             return cve_tags.tags if cve_tags else []
         return []
 
+    def get_cvss_human_score(self, instance):
+        cvss = get_cvss_data(instance)
+        return get_cvss_human_score(cvss["score"]) if cvss else None
 
-class ExtendedCveDetailSerializer(serializers.ModelSerializer, CveProductsMixin):
+
+class ExtendedCveDetailSerializer(serializers.ModelSerializer):
     title = serializers.SerializerMethodField()
     nvd_json = serializers.SerializerMethodField()
     mitre_json = serializers.SerializerMethodField()
@@ -107,31 +112,20 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer, CveProductsMixin)
         ]
 
     def get_weakness_ref(self, instance):
-        """
-        Возвращает список ссылок на описание CWE (Common Weakness Enumeration) на сайте MITRE.
-        Если поле weaknesses пустое или содержит некорректные данные, возвращается пустой список.
-        """
         weaknesses = instance.weaknesses
-
-        # Проверяем, что weaknesses существует и является списком
         if not weaknesses or not isinstance(weaknesses, list):
             return []
 
         weakness_refs = []
         for weakness in weaknesses:
-            # Проверяем, что каждый элемент списка соответствует формату "CWE-XXX"
             if isinstance(weakness, str) and weakness.startswith("CWE-"):
                 try:
-                    # Извлекаем числовую часть из строки "CWE-XXX"
                     cwe_id = weakness.split("-")[1]
-                    # Формируем URL для описания CWE
                     weakness_refs.append(
                         f"https://cwe.mitre.org/data/definitions/{cwe_id}.html"
                     )
                 except IndexError:
-                    # Если строка не соответствует формату "CWE-XXX", пропускаем её
                     continue
-
         return weakness_refs
 
     def get_nvd_json(self, instance):
@@ -158,10 +152,13 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer, CveProductsMixin)
         return []
 
     def get_title(self, instance):
-        """
-        Возвращает title экземпляра или сгенерированный заголовок.
-        """
-        return super().get_title(instance)
+        if instance.title and instance.title.strip():
+            return instance.title
+        return get_humanized_title(
+            cvss_human_score=self.get_cvss_human_score(instance),
+            cve_id=instance.cve_id,
+            vendors=instance.vendors,
+        )
 
     def get_affected(self, instance):
         vendors = instance.vendors
@@ -176,22 +173,28 @@ class ExtendedCveDetailSerializer(serializers.ModelSerializer, CveProductsMixin)
         return list_to_dict_vendors(vendors)
 
     def get_vendors(self, instance):
-        """
-        Возвращает словарь вендоров и их продуктов.
-        """
-        return super().get_vendors(instance)  # Используем метод из миксина
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
+            return get_vendors_with_subscriptions(instance, request.user)
+        return get_vendors_list(instance)
+
+    def get_products(self, instance):
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
+            return get_products_with_subscriptions(instance, request.user)
+        return get_products_list(instance)
+
+    def get_cvss_human_score(self, instance):
+        cvss = get_cvss_data(instance)
+        return get_cvss_human_score(cvss["score"]) if cvss else None
 
 
 class SubscriptionSerializer(serializers.Serializer):
     obj_type = serializers.ChoiceField(choices=["vendor", "product"])
     obj_id = serializers.UUIDField()
     project_id = serializers.UUIDField(required=False)
-    project_name = serializers.CharField(
-        required=False
-    )  # Добавим поле для имени проекта
-    org_name = serializers.CharField(
-        required=False
-    )  # Добавим поле для имени организации
+    project_name = serializers.CharField(required=False)
+    org_name = serializers.CharField(required=False)
 
 
 class ProjectSubscriptionsSerializer(serializers.Serializer):
@@ -221,18 +224,12 @@ class ExtendedVendorListSerializer(serializers.ModelSerializer):
         ]
 
     def get_products_count(self, obj):
-        """
-        Вычисляет количество продуктов, связанных с вендором.
-        :param obj: Экземпляр модели Vendor.
-        :return: Количество продуктов.
-        """
         return obj.products.count()
 
     def get_is_subscribed(self, obj):
-        # Используем SubscriptionMixin из контекста сериализатора
-        subscription_mixin = self.context.get("subscription_mixin")
-        if subscription_mixin:
-            return subscription_mixin.get_subscription_status("vendor", obj.name)
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
+            return get_subscription_status("vendor", obj.name, request.user)
         return False
 
 
@@ -245,21 +242,16 @@ class ProductSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "vendor", "is_subscribed"]
 
     def get_is_subscribed(self, obj):
-        # Формируем полное имя продукта (vendor$PRODUCT$product)
-        subscription_mixin = self.context.get("subscription_mixin")
-        if subscription_mixin:
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
             full_name = f"{obj.vendor.name}{PRODUCT_SEPARATOR}{obj.name}"
-            return subscription_mixin.get_subscription_status("product", full_name)
+            return get_subscription_status("product", full_name, request.user)
         return False
 
     def to_representation(self, instance):
-        """Кастомизация представления в зависимости от контекста"""
         data = super().to_representation(instance)
-
-        # Если в контексте указано vendor_name, убираем вендора из основного ответа
         if self.context.get("vendor_name") and "vendor" in data:
             data.pop("vendor", None)
-
         return data
 
 
@@ -277,20 +269,16 @@ class UserTagSerializer(serializers.ModelSerializer):
 
 
 class CveTagSerializer(serializers.ModelSerializer):
-    cve_ids = serializers.ListField(
-        child=serializers.CharField(), write_only=True  # Принимаем список cve_id
-    )
+    cve_ids = serializers.ListField(child=serializers.CharField(), write_only=True)
     tags = serializers.ListField(child=serializers.CharField())
     cve_id = serializers.CharField(source="cve.cve_id", read_only=True)
 
     class Meta:
         model = CveTag
-        # Поле "user" больше не нужно
         fields = ["id", "cve_ids", "tags", "cve_id"]
         read_only_fields = ["id", "cve_id"]
 
     def validate_cve_ids(self, value):
-        # Проверяем, что каждый cve_id имеет формат CVE-XXXX-XXXX
         for cve_id in value:
             if not cve_id.startswith("CVE-"):
                 raise serializers.ValidationError(
@@ -299,32 +287,23 @@ class CveTagSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
-        # Удаляем cve_ids, если он не используется
         validated_data.pop("cve_ids", None)
-
         tags = validated_data.pop("tags")
-
-        # Получаем объекты Cve из контекста
         cves = self.context.get("cves", [])
-
-        # Получаем текущего пользователя из контекста
         user = self.context["request"].user
 
-        # Создаем или обновляем теги для каждого cve_id
         created_tags = []
         for cve in cves:
             cve_tag, created = CveTag.objects.get_or_create(
                 cve=cve,
-                user=user,  # Используем текущего пользователя
+                user=user,
                 defaults={"tags": tags},
             )
             if not created:
-                # Убираем дубликаты
                 cve_tag.tags = list(set(cve_tag.tags + tags))
                 cve_tag.save()
             created_tags.append(cve_tag)
 
-        # Возвращаем все созданные или обновленные теги
         return created_tags
 
 
@@ -337,28 +316,26 @@ class ExtendedProductListSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "vendor", "is_subscribed"]
 
     def get_is_subscribed(self, obj):
-        full_name = f"{obj.vendor.name}{PRODUCT_SEPARATOR}{obj.name}"
-        subscription_mixin = self.context.get("subscription_mixin")
-        if subscription_mixin:
-            return subscription_mixin.get_subscription_status("product", full_name)
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
+            full_name = f"{obj.vendor.name}{PRODUCT_SEPARATOR}{obj.name}"
+            return get_subscription_status("product", full_name, request.user)
         return False
 
     def get_vendor(self, obj):
-        """Возвращает данные вендора или None, если нужно скрыть (для /vendor/*/product)"""
         if self.context.get("hide_vendor_in_product", False):
             return None
 
+        request = self.context.get("request")
         return {
             "id": str(obj.vendor.id),
             "name": obj.vendor.name,
-            "is_subscribed": self._get_vendor_subscription_status(obj.vendor),
+            "is_subscribed": (
+                get_subscription_status("vendor", obj.vendor.name, request.user)
+                if request and request.user.is_authenticated
+                else False
+            ),
         }
-
-    def _get_vendor_subscription_status(self, vendor):
-        subscription_mixin = self.context.get("subscription_mixin")
-        if not subscription_mixin:
-            return False
-        return subscription_mixin.get_subscription_status("vendor", vendor.name)
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

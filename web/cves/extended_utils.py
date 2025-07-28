@@ -1,20 +1,25 @@
 from cves.utils import list_filtered_cves, list_to_dict_vendors
-from cves.models import Vendor, Product
+from cves.models import Vendor, Product, Cve
 from organizations.models import Membership
+from projects.models import Project
+from django.conf import settings
+import json
+import logging
+from cves.constants import PRODUCT_SEPARATOR
+from cves.templatetags.opencve_extras import (
+    cvss_human_score as get_cvss_human_score_from_lib,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def extended_list_filtered_cves(params, user):
-    """
-    Расширенная версия list_filtered_cves с добавлением фильтрации по дате.
-    """
     queryset = list_filtered_cves(params, user)
 
-    # Фильтрация по дате создания
     created_at = params.get("created_at")
     if created_at:
         queryset = queryset.filter(created_at__date__gte=created_at)
 
-    # Фильтрация по дате обновления
     updated_at = params.get("updated_at")
     if updated_at:
         queryset = queryset.filter(updated_at__date__gte=updated_at)
@@ -23,79 +28,44 @@ def extended_list_filtered_cves(params, user):
 
 
 def get_products(vendors_dict):
-    """
-    Возвращает список продуктов, подверженных уязвимости.
-    :param vendors_dict: Словарь вендоров и их продуктов.
-    :return: Список имён продуктов.
-    """
     products = []
     for vendor_name, product_names in vendors_dict.items():
-        # Находим вендора
         vendor = Vendor.objects.filter(name=vendor_name).first()
         if vendor:
-            # Находим все продукты для этого вендора
             if product_names:
-                # Если указаны конкретные продукты, добавляем их
                 products.extend(product_names)
             else:
-                # Если продукты не указаны, добавляем все продукты вендора
                 vendor_products = Product.objects.filter(vendor=vendor)
                 products.extend([product.name for product in vendor_products])
     return products
 
 
 def get_humanized_title(cvss_human_score, cve_id, vendors):
-    """
-    Возвращает человеко-читаемый заголовок.
-    :param cvss_human_score: Уровень критичности уязвимости (например, "High").
-    :param cve_id: Идентификатор CVE (например, "CVE-2023-1234").
-    :param vendors: Список вендоров и продуктов.
-    :return: Строка с заголовком.
-    """
-    # Преобразуем список вендоров в словарь
     vendors_dict = list_to_dict_vendors(vendors)
-
-    # Получаем список продуктов
     products = get_products(vendors_dict)
 
-    # Собираем заголовок из частей
     parts = []
-
-    # Добавляем уровень CVSS
     if cvss_human_score:
         parts.append(f"{cvss_human_score} severity")
-
-    # Добавляем CVE ID
     if cve_id:
         parts.append(f"({cve_id})")
-
-    # Добавляем вендоров
     if vendors_dict:
         vendor_names = list(vendors_dict.keys())
         if len(vendor_names) == 1:
             parts.append(f"in {vendor_names[0]}")
         else:
             parts.append(f"in {vendor_names[0]} and {len(vendor_names) - 1} other")
-
-    # Добавляем продукты
     if products:
         if len(products) == 1:
             parts.append(f"affecting {products[0]}")
         else:
             parts.append(f"affecting {products[0]} and {len(products) - 1} other")
-
-    # Если ни одно из полей не заполнено, возвращаем заглушку
     if not parts:
         return "No title available"
-
-    # Соединяем части в одну строку
     return " ".join(parts)
 
 
 def get_detailed_subscriptions(project):
-    """
-    Возвращает детальную информацию о подписках проекта.
-    """
     vendor_names = project.subscriptions.get("vendors", [])
     product_names = project.subscriptions.get("products", [])
 
@@ -119,25 +89,129 @@ def get_detailed_subscriptions(project):
 
 
 def get_user_organization(user):
-    """
-    Возвращает организацию пользователя.
-    :param user: Объект пользователя.
-    :return: Организация пользователя или None.
-    """
     membership = Membership.objects.filter(user=user).first()
     return membership.organization if membership else None
 
 
-from rest_framework.pagination import PageNumberPagination
+def get_subscription_status(obj_type, obj_name, user):
+    try:
+        project = _get_current_project(user)
+        if not project:
+            return False
+
+        if obj_type == "vendor":
+            subscribed_items = project.subscriptions.get("vendors", [])
+            return obj_name in subscribed_items
+        elif obj_type == "product":
+            subscribed_items = project.subscriptions.get("products", [])
+            return obj_name in subscribed_items
+        return False
+    except Exception as e:
+        logger.error(f"Error checking subscription: {e}")
+        return False
+
+
+def _get_current_project(user):
+    organization = get_user_organization(user)
+    if not organization:
+        logger.error(f"{user} not found in org")
+        return None
+
+    default_project_name = getattr(settings, "GLOBAL_DEFAULT_PROJECT_NAME", "default")
+    return Project.objects.filter(
+        name=default_project_name, organization=organization
+    ).first()
+
+
+def get_cvss_data(instance):
+    cvss_fields = ["cvssV4_0", "cvssV3_1", "cvssV3_0", "cvssV2_0"]
+    for field in cvss_fields:
+        cvss = instance.metrics.get(field, {}).get("data", {})
+        if cvss and "score" in cvss:
+            return cvss
+    return None
+
+
+def get_cvss_human_score(score):
+    return get_cvss_human_score_from_lib(score).title() if score else None
+
+
+def get_vendors_list(instance):
+    vendors = instance.vendors
+    if isinstance(vendors, str):
+        try:
+            vendors = json.loads(vendors)
+        except json.JSONDecodeError:
+            logger.warning(f"Vendors is a string for CVE {instance.cve_id}: {vendors}")
+            vendors = [vendors]
+
+    if not isinstance(vendors, list):
+        return []
+
+    vendors_list = [v.split("$PRODUCT$")[0] if "$PRODUCT$" in v else v for v in vendors]
+    return list(set(vendors_list))
+
+
+def get_products_list(instance):
+    vendors = instance.vendors
+    products = set()
+
+    if isinstance(vendors, list):
+        products.update(v.split("$PRODUCT$")[1] for v in vendors if "$PRODUCT$" in v)
+    elif isinstance(vendors, str):
+        try:
+            vendors_list = json.loads(vendors)
+            products.update(
+                v.split("$PRODUCT$")[1] for v in vendors_list if "$PRODUCT$" in v
+            )
+        except json.JSONDecodeError:
+            logger.warning(f"Vendors is a string for CVE {instance.cve_id}: {vendors}")
+            if "$PRODUCT$" in vendors:
+                products.add(vendors.split("$PRODUCT$")[1])
+
+    return list(products)
+
+
+def get_vendors_with_subscriptions(instance, user):
+    vendor_names = get_vendors_list(instance)
+    return [
+        {
+            "name": vendor_name,
+            "is_subscribed": get_subscription_status("vendor", vendor_name, user),
+        }
+        for vendor_name in vendor_names
+    ]
+
+
+def get_products_with_subscriptions(instance, user):
+    product_names = get_products_list(instance)
+    vendors_dict = list_to_dict_vendors(instance.vendors)
+
+    result = []
+    for product_name in product_names:
+        vendor_name = next(
+            (v for v, products in vendors_dict.items() if product_name in products),
+            None,
+        )
+        if vendor_name:
+            full_name = f"{vendor_name}{PRODUCT_SEPARATOR}{product_name}"
+            result.append(
+                {
+                    "name": product_name,
+                    "vendor": vendor_name,
+                    "is_subscribed": get_subscription_status(
+                        "product", full_name, user
+                    ),
+                }
+            )
+    return result
 
 
 class OptionalPagination(PageNumberPagination):
-    """Пагинатор с возможностью отключения через параметр page_size=all"""
-
     page_size_query_param = "page_size"
     max_page_size = 1000
 
     def paginate_queryset(self, queryset, request, view=None):
         if request.query_params.get(self.page_size_query_param) == "all":
-            return None  # Отключаем пагинацию
+            return None
         return super().paginate_queryset(queryset, request, view)
