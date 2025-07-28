@@ -71,19 +71,6 @@ class ExtendedVendorViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(name__icontains=search)
         return queryset
 
-    def list(self, request, *args, **kwargs):
-        queryset = self.get_queryset()
-        page = self.paginate_queryset(queryset)
-        serializer = self.get_serializer(
-            page or queryset, many=True, context={"request": request}
-        )
-        data = [item for item in serializer.data if item is not None]
-        return (
-            self.get_paginated_response({"status": "success", "vendors": data})
-            if page
-            else Response({"status": "success", "vendors": data})
-        )
-
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
         serializer = self.get_serializer(instance, context={"request": request})

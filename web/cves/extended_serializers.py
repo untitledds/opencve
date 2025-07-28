@@ -61,16 +61,26 @@ class ExtendedCveListSerializer(serializers.ModelSerializer):
         )
 
     def get_vendors(self, obj):
+        """
+        Возвращает список имён вендоров (без продуктов).
+        Например: ["citrix"]
+        """
         if isinstance(obj.vendors, str):
             try:
                 vendors = json.loads(obj.vendors)
-            except:
+            except json.JSONDecodeError:
                 vendors = [obj.vendors]
         elif isinstance(obj.vendors, list):
             vendors = obj.vendors
         else:
             vendors = []
-        return list_to_dict_vendors(vendors)
+
+        # Если это список словарей вида {"vendor": "name", "product": [...]}
+        if vendors and isinstance(vendors, list) and isinstance(vendors[0], dict):
+            return [item.get("vendor") for item in vendors if "vendor" in item]
+
+        # Если это просто список строк
+        return [v for v in vendors if isinstance(v, str)]
 
     def get_products(self, obj):
         return get_products(self.get_vendors(obj))
