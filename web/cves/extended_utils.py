@@ -88,7 +88,7 @@ def get_current_project_for_user(user, project_id=None, use_default=False):
     return None
 
 
-def extended_list_filtered_cves(params, user):
+def extended_list_filtered_cves(params, user, base_queryset=None):
     """
     Расширенная фильтрация CVE с поддержкой:
     - created_at, updated_at
@@ -97,7 +97,7 @@ def extended_list_filtered_cves(params, user):
     - cwe, kev, has_tag, is_subscribed
     - references, has_exploit
     """
-    queryset = list_filtered_cves(params, user)
+    queryset = base_queryset or list_filtered_cves(params, user)
 
     # --- Даты ---
     if params.get("created_at"):
@@ -146,19 +146,6 @@ def extended_list_filtered_cves(params, user):
             "cve_id", flat=True
         )
         queryset = queryset.filter(id__in=cve_ids)
-
-    # --- Only Subscribed ---
-    if params.get("is_subscribed", "").lower() == "true":
-        project = get_current_project_for_user(user, use_default=True)
-        if project:
-            vendors = project.subscriptions.get("vendors", [])
-            products = project.subscriptions.get("products", [])
-            all_keys = [k for k in (vendors + products) if k]
-            if all_keys:
-                q_filter = Q()
-                for key in all_keys:
-                    q_filter |= Q(vendors__icontains=key)
-                queryset = queryset.filter(q_filter)
 
     # --- References ---
     if params.get("references"):

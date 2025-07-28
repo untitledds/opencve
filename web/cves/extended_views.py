@@ -25,17 +25,6 @@ from cves.extended_utils import (
     process_subscription,
     get_current_project_for_user,
 )
-from rest_framework.pagination import PageNumberPagination
-
-
-class OptionalPagination(PageNumberPagination):
-    page_size_query_param = "page_size"
-    max_page_size = 1000
-
-    def paginate_queryset(self, queryset, request, view=None):
-        if request.query_params.get(self.page_size_query_param) == "all":
-            return None
-        return super().paginate_queryset(queryset, request, view)
 
 
 class ExtendedCveViewSet(viewsets.ReadOnlyModelViewSet):
@@ -43,7 +32,6 @@ class ExtendedCveViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Cve.objects.order_by("-updated_at")
     permission_classes = [permissions.IsAuthenticated]
     lookup_field = "cve_id"
-    pagination_class = OptionalPagination
 
     def get_serializer_class(self):
         if self.action == "retrieve":
@@ -53,7 +41,42 @@ class ExtendedCveViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         if self.action == "retrieve":
             return self.queryset.all()
-        return extended_list_filtered_cves(self.request.GET, self.request.user)
+
+        request = self.request
+        params = request.GET
+
+        # Начинаем с полного queryset
+        base_queryset = self.queryset.order_by("-updated_at")
+
+        # Проверяем, нужно ли фильтровать по подпискам проекта по умолчанию
+        use_default = "myproject" in params
+
+        if use_default:
+            # Кэшируем проект
+            if not hasattr(request, "_cached_default_project"):
+                project = get_current_project_for_user(request.user, use_default=True)
+                setattr(request, "_cached_default_project", project)
+            else:
+                project = request._cached_default_project
+
+            if not project:
+                return Cve.objects.none()
+
+            vendor_keys = project.subscriptions.get("vendors", [])
+            product_keys = project.subscriptions.get("products", [])
+            all_keys = [k for k in (vendor_keys + product_keys) if k]
+
+            if not all_keys:
+                return Cve.objects.none()
+
+            # Фильтруем по подпискам — это становится базовым queryset
+            base_queryset = base_queryset.filter(vendors__has_any_keys=all_keys)
+
+        # Применяем все остальные фильтры (search, cvss, severity и т.д.)
+        # Передаём изменённый base_queryset как основу
+        return extended_list_filtered_cves(
+            params, request.user, base_queryset=base_queryset
+        )
 
 
 class ExtendedVendorViewSet(viewsets.ReadOnlyModelViewSet):
@@ -64,7 +87,7 @@ class ExtendedVendorViewSet(viewsets.ReadOnlyModelViewSet):
     lookup_url_kwarg = "id"
 
     def get_queryset(self):
-        queryset = self.queryset.all()
+        queryset = self.queryset
         search = self.request.GET.get("search")
         if search:
             queryset = queryset.filter(name__icontains=search)
@@ -76,16 +99,18 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     lookup_field = "id"
     lookup_url_kwarg = "id"
+    queryset = (
+        Product.objects.select_related("vendor")
+        .filter(name__isnull=False)
+        .exclude(name="")
+        .order_by("name")
+    )
 
     def get_queryset(self):
         vendor_id = self.kwargs.get("vendor_id")
         search = self.request.GET.get("search")
-        queryset = (
-            Product.objects.select_related("vendor")
-            .filter(name__isnull=False)
-            .exclude(name="")
-            .order_by("name")
-        ).all()
+        queryset = self.queryset
+
         if vendor_id:
             vendor = get_object_or_404(Vendor, id=vendor_id)
             queryset = queryset.filter(vendor=vendor)
@@ -93,55 +118,10 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(name__icontains=search)
         return queryset
 
-    def list(self, request, *args, **kwargs):
-        queryset = self.get_queryset()
-        page = self.paginate_queryset(queryset)
-        serializer = self.get_serializer(
-            page or queryset,
-            many=True,
-            context={
-                "request": request,
-                "hide_vendor_in_product": bool(self.kwargs.get("vendor_id")),
-                "vendor_name": self.kwargs.get("vendor_id"),
-            },
-        )
-        data = [item for item in serializer.data if item is not None]
-        response_data = {"status": "success", "products": data}
-        if self.kwargs.get("vendor_id"):
-            vendor = get_object_or_404(Vendor, id=self.kwargs["vendor_id"])
-            response_data["vendor"] = {
-                "id": str(vendor.id),
-                "name": vendor.name,
-                "display_name": vendor.human_name,
-                "is_subscribed": self._get_vendor_subscription(vendor, request),
-            }
-        return (
-            self.get_paginated_response(response_data)
-            if page
-            else Response(response_data)
-        )
-
-    def _get_vendor_subscription(self, vendor, request):
-        project = get_current_project_for_user(
-            request.user,
-            project_id=request.query_params.get("project_id"),
-            use_default="myproject" in request.query_params,
-        )
-        if not project:
-            return False
-        return vendor.name in project.subscriptions.get("vendors", [])
-
-    def retrieve(self, request, *args, **kwargs):
-        instance = self.get_object()
-        serializer = self.get_serializer(
-            instance,
-            context={
-                "request": request,
-                "vendor_name": instance.vendor.name,
-                "hide_vendor_in_product": False,
-            },
-        )
-        return Response({"status": "success", "data": serializer.data})
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["hide_vendor_in_product"] = bool(self.kwargs.get("vendor_id"))
+        return context
 
 
 class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
@@ -224,8 +204,9 @@ class CveTagViewSet(viewsets.ModelViewSet):
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
-        cve_ids = request.data.get("cve_ids", [])
-        tags = request.data.get("tags", [])
+        # Обработка входных данных
+        cve_ids = list(set(request.data.get("cve_ids", [])))
+        tags = list(set(request.data.get("tags", [])))
 
         if not cve_ids or not tags:
             return Response(
@@ -236,44 +217,44 @@ class CveTagViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Преобразуем в списки
-        if isinstance(cve_ids, str):
-            cve_ids = [cve_ids]
-        if isinstance(tags, str):
-            tags = [tags]
+        # Получаем все CVE одним запросом
+        cves = Cve.objects.filter(cve_id__in=cve_ids)
+        existing_cve_ids = set(cves.values_list("cve_id", flat=True))
+        missing_cve_ids = set(cve_ids) - existing_cve_ids
 
-        # Убираем дубликаты
-        tags = list(set(tags))
-
-        # Получаем объекты CVE
-        cves = []
-        for cve_id in cve_ids:
-            try:
-                cve = Cve.objects.get(cve_id=cve_id)
-                cves.append(cve)
-            except Cve.DoesNotExist:
-                return Response(
-                    {"status": "error", "message": f"CVE with ID {cve_id} not found."},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-
-        # Создаём или обновляем теги
-        created_tags = []
-        for cve in cves:
-            cve_tag, created = CveTag.objects.get_or_create(
-                cve=cve, user=request.user, defaults={"tags": tags}
+        if missing_cve_ids:
+            return Response(
+                {
+                    "status": "error",
+                    "message": f"CVE(s) not found: {', '.join(sorted(missing_cve_ids))}",
+                    "missing_cve_ids": sorted(missing_cve_ids),
+                },
+                status=status.HTTP_404_NOT_FOUND,
             )
-            if not created:
-                cve_tag.tags = list(set(cve_tag.tags + tags))
-                cve_tag.save()
-            created_tags.append(cve_tag)
 
-        # Сериализуем
-        serializer = self.get_serializer(created_tags, many=True)
+        # Bulk create/update
+        cve_tags_to_create = []
+        cve_tags_to_update = []
+
+        for cve in cves:
+            try:
+                cve_tag = CveTag.objects.get(cve=cve, user=request.user)
+                cve_tag.tags = list(set(cve_tag.tags + tags))
+                cve_tags_to_update.append(cve_tag)
+            except CveTag.DoesNotExist:
+                cve_tags_to_create.append(CveTag(cve=cve, user=request.user, tags=tags))
+        # Выполняем массовые операции
+        created_tags = CveTag.objects.bulk_create(cve_tags_to_create)
+        CveTag.objects.bulk_update(cve_tags_to_update, ["tags"])
+
+        # Сериализуем все созданные и обновленные теги
+        all_tags = created_tags + cve_tags_to_update
+        serializer = self.get_serializer(all_tags, many=True)
+
         return Response(
             {
                 "status": "success",
-                "message": "Tags assigned successfully.",
+                "message": f"Tags assigned to {len(all_tags)} CVE(s)",
                 "data": serializer.data,
             },
             status=status.HTTP_201_CREATED,

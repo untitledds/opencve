@@ -1,10 +1,8 @@
 from rest_framework import serializers
-import json
 from cves.models import Cve, Product, Vendor
 from cves.templatetags.opencve_extras import cvss_human_score
 from cves.extended_utils import (
     get_current_project_for_user,
-    get_products,
     get_humanized_title,
 )
 
@@ -61,29 +59,28 @@ class ExtendedCveListSerializer(serializers.ModelSerializer):
         )
 
     def get_vendors(self, obj):
-        """
-        Возвращает список имён вендоров (без продуктов).
-        Например: ["citrix"]
-        """
-        if isinstance(obj.vendors, str):
-            try:
-                vendors = json.loads(obj.vendors)
-            except json.JSONDecodeError:
-                vendors = [obj.vendors]
-        elif isinstance(obj.vendors, list):
-            vendors = obj.vendors
-        else:
-            vendors = []
+        """Возвращает список уникальных вендоров (ключи словаря)"""
+        if not obj.vendors:
+            return []
 
-        # Если это список словарей вида {"vendor": "name", "product": [...]}
-        if vendors and isinstance(vendors, list) and isinstance(vendors[0], dict):
-            return [item.get("vendor") for item in vendors if "vendor" in item]
-
-        # Если это просто список строк
-        return [v for v in vendors if isinstance(v, str)]
+        vendors_list = obj.vendors if isinstance(obj.vendors, list) else [obj.vendors]
+        vendors_dict = list_to_dict_vendors(vendors_list)
+        return sorted(vendors_dict.keys())
 
     def get_products(self, obj):
-        return get_products(self.get_vendors(obj))
+        """Возвращает плоский список всех продуктов"""
+        if not obj.vendors:
+            return []
+
+        vendors_list = obj.vendors if isinstance(obj.vendors, list) else [obj.vendors]
+        vendors_dict = list_to_dict_vendors(vendors_list)
+
+        # Собираем все продукты из всех вендоров
+        all_products = []
+        for products in vendors_dict.values():
+            all_products.extend(products)
+
+        return sorted(list(set(all_products)))
 
     def get_tags(self, obj):
         request = self.context.get("request")
@@ -297,7 +294,6 @@ class ExtendedProductListSerializer(serializers.ModelSerializer):
 
         representation = super().to_representation(instance)
 
-        # Полностью удаляем поле vendor, если hide_vendor_in_product=True
         if self.context.get("hide_vendor_in_product"):
             representation.pop("vendor", None)
 
@@ -308,35 +304,36 @@ class ExtendedProductListSerializer(serializers.ModelSerializer):
         if not request or not request.user.is_authenticated:
             return False
 
-        project = get_current_project_for_user(
-            request.user,
-            project_id=request.query_params.get("project_id"),
-            use_default="myproject" in request.query_params,
-        )
+        project = self._get_project(request)
         if not project:
             return False
 
-        full_name = f"{obj.vendor.name}{PRODUCT_SEPARATOR}{obj.name}"
-        return full_name in project.subscriptions.get("products", [])
+        return obj.vendored_name in project.subscriptions.get("products", [])
 
     def get_vendor(self, obj):
         if self.context.get("hide_vendor_in_product"):
             return None
+
+        request = self.context.get("request")
+        project = self._get_project(request) if request else None
+
         return {
             "id": str(obj.vendor.id),
             "name": obj.vendor.name,
             "display_name": obj.vendor.human_name,
-            "is_subscribed": self._get_vendor_subscription(
-                obj.vendor, self.context["request"]
+            "is_subscribed": (
+                obj.vendor.name in project.subscriptions.get("vendors", [])
+                if project
+                else False
             ),
         }
 
-    def _get_vendor_subscription(self, vendor, request):
-        project = get_current_project_for_user(
-            request.user,
-            project_id=request.query_params.get("project_id"),
-            use_default="myproject" in request.query_params,
-        )
-        if not project:
-            return False
-        return vendor.name in project.subscriptions.get("vendors", [])
+    def _get_project(self, request):
+        """Вспомогательный метод для получения проекта (кэшируется в контексте)"""
+        if not hasattr(self, "_cached_project"):
+            self._cached_project = get_current_project_for_user(
+                request.user,
+                project_id=request.query_params.get("project_id"),
+                use_default=True,
+            )
+        return self._cached_project
