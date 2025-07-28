@@ -183,7 +183,7 @@ class ExtendedVendorListSerializer(serializers.ModelSerializer):
         project = get_current_project_for_user(
             request.user,
             project_id=request.query_params.get("project_id"),
-            use_default="myproject" in request.query_params,
+            use_default=True,
         )
         if not project:
             return False
@@ -294,7 +294,14 @@ class ExtendedProductListSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         if not instance.name or not instance.name.strip():
             return None
-        return super().to_representation(instance)
+
+        representation = super().to_representation(instance)
+
+        # Полностью удаляем поле vendor, если hide_vendor_in_product=True
+        if self.context.get("hide_vendor_in_product"):
+            representation.pop("vendor", None)
+
+        return representation
 
     def get_is_subscribed(self, obj):
         request = self.context.get("request")

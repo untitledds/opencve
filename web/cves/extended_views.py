@@ -62,7 +62,6 @@ class ExtendedVendorViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Vendor.objects.order_by("name")
     lookup_field = "id"
     lookup_url_kwarg = "id"
-    pagination_class = OptionalPagination
 
     def get_queryset(self):
         queryset = self.queryset.all()
@@ -71,18 +70,12 @@ class ExtendedVendorViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(name__icontains=search)
         return queryset
 
-    def retrieve(self, request, *args, **kwargs):
-        instance = self.get_object()
-        serializer = self.get_serializer(instance, context={"request": request})
-        return Response({"status": "success", "data": serializer.data})
-
 
 class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ExtendedProductListSerializer
     permission_classes = [permissions.IsAuthenticated]
     lookup_field = "id"
     lookup_url_kwarg = "id"
-    pagination_class = OptionalPagination
 
     def get_queryset(self):
         vendor_id = self.kwargs.get("vendor_id")
@@ -92,7 +85,7 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
             .filter(name__isnull=False)
             .exclude(name="")
             .order_by("name")
-        )
+        ).all()
         if vendor_id:
             vendor = get_object_or_404(Vendor, id=vendor_id)
             queryset = queryset.filter(vendor=vendor)
