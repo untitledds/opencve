@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.contrib.auth import login
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from organizations.models import Organization, Membership
