@@ -1,7 +1,12 @@
 from rest_framework import serializers
 import json
 from cves.models import Cve, Product, Vendor
-from .extended_mixins import CveProductsMixin
+from cves.templatetags.opencve_extras import cvss_human_score
+from cves.extended_utils import (
+    get_current_project_for_user,
+    get_products,
+    get_humanized_title,
+)
 
 # from cves.serializers import Vendor, Product
 from users.models import CveTag, UserTag
@@ -12,13 +17,13 @@ from cves.constants import PRODUCT_SEPARATOR
 CVSS_FIELDS = ["cvssV4_0", "cvssV3_1", "cvssV3_0", "cvssV2_0"]
 
 
-class ExtendedCveListSerializer(serializers.ModelSerializer, CveProductsMixin):
+class ExtendedCveListSerializer(serializers.ModelSerializer):
     cvss_score = serializers.SerializerMethodField()
     cvss_human_score = serializers.SerializerMethodField()
     title = serializers.SerializerMethodField()
+    vendors = serializers.SerializerMethodField()
     products = serializers.SerializerMethodField()
     tags = serializers.SerializerMethodField()
-    vendors = serializers.SerializerMethodField()
 
     class Meta:
         model = Cve
@@ -35,151 +40,95 @@ class ExtendedCveListSerializer(serializers.ModelSerializer, CveProductsMixin):
             "tags",
         ]
 
-    def get_vendors(self, instance):
-        """
-        Возвращает словарь вендоров и их продуктов.
-        """
-        return super().get_vendors(instance)  # Используем метод из миксина
+    def get_cvss_score(self, obj):
+        for field in CVSS_FIELDS:
+            cvss = obj.metrics.get(field, {}).get("data", {})
+            if cvss and "score" in cvss:
+                return cvss["score"]
+        return None
 
-    def get_products(self, instance):
-        """
-        Возвращает список продуктов, связанных с CVE через вендоров.
-        """
-        return super().get_products(instance)  # Используем метод из миксина
+    def get_cvss_human_score(self, obj):
+        score = self.get_cvss_score(obj)
+        return cvss_human_score(score).title() if score else None
 
-    def get_cvss_score(self, instance):
-        """
-        Возвращает CVSS score из первой доступной версии CVSS.
-        """
-        cvss = self._get_cvss_data(instance)
-        return cvss["score"] if cvss else None
+    def get_title(self, obj):
+        if obj.title and obj.title.strip():
+            return obj.title
+        return get_humanized_title(
+            cvss_human_score=self.get_cvss_human_score(obj),
+            cve_id=obj.cve_id,
+            vendors=obj.vendors,
+        )
 
-    def get_title(self, instance):
-        """
-        Возвращает title экземпляра или сгенерированный заголовок.
-        """
-        return super().get_title(instance)
+    def get_vendors(self, obj):
+        if isinstance(obj.vendors, str):
+            try:
+                vendors = json.loads(obj.vendors)
+            except:
+                vendors = [obj.vendors]
+        elif isinstance(obj.vendors, list):
+            vendors = obj.vendors
+        else:
+            vendors = []
+        return list_to_dict_vendors(vendors)
 
-    def get_tags(self, instance):
-        if (
-            self.context.get("request")
-            and self.context["request"].user.is_authenticated
-        ):
-            cve_tags = instance.cve_tags.filter(
-                user=self.context["request"].user
-            ).first()
-            return cve_tags.tags if cve_tags else []
+    def get_products(self, obj):
+        return get_products(self.get_vendors(obj))
+
+    def get_tags(self, obj):
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
+            cve_tag = obj.cve_tags.filter(user=request.user).first()
+            return cve_tag.tags if cve_tag else []
         return []
 
 
-class ExtendedCveDetailSerializer(serializers.ModelSerializer, CveProductsMixin):
-    title = serializers.SerializerMethodField()
+class ExtendedCveDetailSerializer(ExtendedCveListSerializer):
     nvd_json = serializers.SerializerMethodField()
     mitre_json = serializers.SerializerMethodField()
     redhat_json = serializers.SerializerMethodField()
     vulnrichment_json = serializers.SerializerMethodField()
-    tags = serializers.SerializerMethodField()
-    products = serializers.SerializerMethodField()
-    vendors = serializers.SerializerMethodField()
     affected = serializers.SerializerMethodField()
     weakness_ref = serializers.SerializerMethodField()
 
     class Meta:
         model = Cve
-        fields = [
-            "created_at",
-            "updated_at",
-            "cve_id",
-            "title",
-            "description",
+        fields = ExtendedCveListSerializer.Meta.fields + [
             "metrics",
             "weaknesses",
             "affected",
-            "vendors",
-            "products",
             "nvd_json",
             "mitre_json",
             "redhat_json",
             "vulnrichment_json",
-            "tags",
             "references",
             "weakness_ref",
         ]
 
-    def get_weakness_ref(self, instance):
-        """
-        Возвращает список ссылок на описание CWE (Common Weakness Enumeration) на сайте MITRE.
-        Если поле weaknesses пустое или содержит некорректные данные, возвращается пустой список.
-        """
-        weaknesses = instance.weaknesses
+    def get_nvd_json(self, obj):
+        return obj.nvd_json
 
-        # Проверяем, что weaknesses существует и является списком
-        if not weaknesses or not isinstance(weaknesses, list):
+    def get_mitre_json(self, obj):
+        return obj.mitre_json
+
+    def get_redhat_json(self, obj):
+        return obj.redhat_json
+
+    def get_vulnrichment_json(self, obj):
+        return obj.vulnrichment_json
+
+    def get_affected(self, obj):
+        return self.get_vendors(obj)
+
+    def get_weakness_ref(self, obj):
+        weaknesses = obj.weaknesses
+        if not isinstance(weaknesses, list):
             return []
-
-        weakness_refs = []
-        for weakness in weaknesses:
-            # Проверяем, что каждый элемент списка соответствует формату "CWE-XXX"
-            if isinstance(weakness, str) and weakness.startswith("CWE-"):
-                try:
-                    # Извлекаем числовую часть из строки "CWE-XXX"
-                    cwe_id = weakness.split("-")[1]
-                    # Формируем URL для описания CWE
-                    weakness_refs.append(
-                        f"https://cwe.mitre.org/data/definitions/{cwe_id}.html"
-                    )
-                except IndexError:
-                    # Если строка не соответствует формату "CWE-XXX", пропускаем её
-                    continue
-
-        return weakness_refs
-
-    def get_nvd_json(self, instance):
-        return instance.nvd_json
-
-    def get_mitre_json(self, instance):
-        return instance.mitre_json
-
-    def get_redhat_json(self, instance):
-        return instance.redhat_json
-
-    def get_vulnrichment_json(self, instance):
-        return instance.vulnrichment_json
-
-    def get_tags(self, instance):
-        if (
-            self.context.get("request")
-            and self.context["request"].user.is_authenticated
-        ):
-            cve_tags = instance.cve_tags.filter(
-                user=self.context["request"].user
-            ).first()
-            return cve_tags.tags if cve_tags else []
-        return []
-
-    def get_title(self, instance):
-        """
-        Возвращает title экземпляра или сгенерированный заголовок.
-        """
-        return super().get_title(instance)
-
-    def get_affected(self, instance):
-        vendors = instance.vendors
-        if isinstance(vendors, str):
-            try:
-                vendors = json.loads(vendors)
-            except json.JSONDecodeError:
-                vendors = [vendors]
-        elif not isinstance(vendors, list):
-            vendors = []
-
-        return list_to_dict_vendors(vendors)
-
-    def get_vendors(self, instance):
-        """
-        Возвращает словарь вендоров и их продуктов.
-        """
-        return super().get_vendors(instance)  # Используем метод из миксина
+        return [
+            f"https://cwe.mitre.org/data/definitions/{w.split('-')[1]}.html"
+            for w in weaknesses
+            if isinstance(w, str) and w.startswith("CWE-")
+        ]
 
 
 class SubscriptionSerializer(serializers.Serializer):
@@ -211,29 +160,25 @@ class ExtendedVendorListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Vendor
-        fields = [
-            "id",
-            "created_at",
-            "updated_at",
-            "name",
-            "products_count",
-            "is_subscribed",
-        ]
+        fields = ["id", "name", "products_count", "is_subscribed"]
 
     def get_products_count(self, obj):
-        """
-        Вычисляет количество продуктов, связанных с вендором.
-        :param obj: Экземпляр модели Vendor.
-        :return: Количество продуктов.
-        """
-        return obj.products.count()
+        return obj.products.exclude(name="").exclude(name__isnull=True).count()
 
     def get_is_subscribed(self, obj):
-        # Используем SubscriptionMixin из контекста сериализатора
-        subscription_mixin = self.context.get("subscription_mixin")
-        if subscription_mixin:
-            return subscription_mixin.get_subscription_status("vendor", obj.name)
-        return False
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return False
+
+        project = get_current_project_for_user(
+            request.user,
+            project_id=request.query_params.get("project_id"),
+            use_default="myproject" in request.query_params,
+        )
+        if not project:
+            return False
+
+        return obj.name in project.subscriptions.get("vendors", [])
 
 
 class ProductSerializer(serializers.ModelSerializer):
@@ -336,32 +281,45 @@ class ExtendedProductListSerializer(serializers.ModelSerializer):
         model = Product
         fields = ["id", "name", "vendor", "is_subscribed"]
 
+    def to_representation(self, instance):
+        if not instance.name or not instance.name.strip():
+            return None
+        return super().to_representation(instance)
+
     def get_is_subscribed(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return False
+
+        project = get_current_project_for_user(
+            request.user,
+            project_id=request.query_params.get("project_id"),
+            use_default="myproject" in request.query_params,
+        )
+        if not project:
+            return False
+
         full_name = f"{obj.vendor.name}{PRODUCT_SEPARATOR}{obj.name}"
-        subscription_mixin = self.context.get("subscription_mixin")
-        if subscription_mixin:
-            return subscription_mixin.get_subscription_status("product", full_name)
-        return False
+        return full_name in project.subscriptions.get("products", [])
 
     def get_vendor(self, obj):
-        """Возвращает данные вендора или None, если нужно скрыть (для /vendor/*/product)"""
-        if self.context.get("hide_vendor_in_product", False):
+        if self.context.get("hide_vendor_in_product"):
             return None
-
         return {
             "id": str(obj.vendor.id),
             "name": obj.vendor.name,
-            "is_subscribed": self._get_vendor_subscription_status(obj.vendor),
+            "display_name": obj.vendor.human_name,
+            "is_subscribed": self._get_vendor_subscription(
+                obj.vendor, self.context["request"]
+            ),
         }
 
-    def _get_vendor_subscription_status(self, vendor):
-        subscription_mixin = self.context.get("subscription_mixin")
-        if not subscription_mixin:
+    def _get_vendor_subscription(self, vendor, request):
+        project = get_current_project_for_user(
+            request.user,
+            project_id=request.query_params.get("project_id"),
+            use_default="myproject" in request.query_params,
+        )
+        if not project:
             return False
-        return subscription_mixin.get_subscription_status("vendor", vendor.name)
-
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        if self.context.get("hide_vendor_in_product", False):
-            data.pop("vendor", None)
-        return data
+        return vendor.name in project.subscriptions.get("vendors", [])

@@ -14,7 +14,7 @@ from cves.resources import (
 from organizations.resources import OrganizationViewSet
 from projects.resources import ProjectCveViewSet, ProjectViewSet
 from users.views import CustomLoginView, CustomSignupView
-from cves.extended_resources import (
+from cves.extended_views import (
     ExtendedCveViewSet,
     ExtendedWeaknessViewSet,
     ExtendedVendorViewSet,
