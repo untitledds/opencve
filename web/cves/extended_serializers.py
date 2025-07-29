@@ -16,12 +16,8 @@ from cves.extended_utils import (
     get_vendors_with_subscriptions,
     get_products_with_subscriptions,
     get_subscription_status,
-    get_user_organization,
 )
-from projects.models import Project
-from django.shortcuts import get_object_or_404
 from rest_framework.exceptions import ValidationError
-from opencve.conf import settings
 
 
 class ExtendedCveListSerializer(serializers.ModelSerializer):

@@ -48,39 +48,42 @@ def extended_list_filtered_cves(params: Dict[str, Any], user) -> QuerySet[Cve]:
 
 def get_user_subscriptions(user):
     """
-    Возвращает подписки пользователя в формате:
+    Возвращает подписки пользователя в формате, ожидаемом фронтендом:
     {
-        "vendors": [
-            {"type": "vendor", "id": "...", "name": "Human Name"}
-        ],
-        "products": [
-            {"type": "product", "id": "...", "name": "Human Name", "vendor": "Vendor Name"}
+        "data": [
+            {"type": "vendor", "id": "...", "name": "Human Name"},
+            {"type": "product", "id": "...", "name": "Human Name"}
         ]
     }
     """
     try:
         project = _get_current_project(user)
         if not project:
-            return {"vendors": [], "products": []}
+            return {"data": []}
 
         vendor_names = project.subscriptions.get("vendors", [])
-        product_names = project.subscriptions.get("products", [])  # это vendored_name
+        product_vendored_names = project.subscriptions.get("products", [])
 
-        # Получаем объекты
         vendors = Vendor.objects.filter(name__in=vendor_names)
-        products = get_products_from_vendored_names(product_names)
+        products = get_products_from_vendored_names(product_vendored_names)
 
-        # Формируем ответ
-        result = {
-            "vendors": [
+        data = []
+
+        # Добавляем вендоры
+        data.extend(
+            [
                 {
                     "type": "vendor",
                     "id": str(vendor.id),
                     "name": vendor.human_name,
                 }
                 for vendor in vendors
-            ],
-            "products": [
+            ]
+        )
+
+        # Добавляем продукты (без поля vendor — фронтенд не использует)
+        data.extend(
+            [
                 {
                     "type": "product",
                     "id": str(product.id),
@@ -88,14 +91,14 @@ def get_user_subscriptions(user):
                     "vendor": product.vendor.human_name,
                 }
                 for product in products
-            ],
-        }
+            ]
+        )
 
-        return result
+        return {"data": data}
 
     except Exception as e:
         logger.error(f"Error getting user subscriptions: {e}")
-        return {"vendors": [], "products": []}
+        return {"data": []}
 
 
 def list_filtered_products(queryset, params, user):
