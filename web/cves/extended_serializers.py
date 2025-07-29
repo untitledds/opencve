@@ -267,7 +267,7 @@ class ExtendedProductListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Product
-        fields = ["id", "name", "is_subscribed"]
+        fields = ["id", "name", "vendor", "is_subscribed"]
 
     def get_is_subscribed(self, obj: Product) -> bool:
         request = self.context.get("request")
