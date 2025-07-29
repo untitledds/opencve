@@ -1,48 +1,26 @@
+# web/cves/extended_resources.py
 from rest_framework import viewsets, permissions, status
-from cves.constants import PRODUCT_SEPARATOR
-import logging
-import json
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
-from django.conf import settings
 from django.shortcuts import get_object_or_404
-from django.http import Http404
 from django.db import transaction
 from cves.models import Cve, Vendor, Product, Weakness
-from .extended_utils import get_detailed_subscriptions, get_user_organization
-from projects.models import Project, get_default_subscriptions
 from users.models import UserTag, CveTag
-from cves.serializers import (
-    WeaknessListSerializer,
-)
-from .extended_serializers import (
+from cves.serializers import WeaknessListSerializer
+from cves.extended_serializers import (
     ExtendedCveListSerializer,
     ExtendedCveDetailSerializer,
-    ProjectSubscriptionsSerializer,
     SubscriptionSerializer,
-    DetailedSubscriptionSerializer,
     UserTagSerializer,
     CveTagSerializer,
     ExtendedVendorListSerializer,
     ExtendedProductListSerializer,
 )
-from .extended_utils import (
-    extended_list_filtered_cves,
-    get_products,
-    OptionalPagination,
-)
-from .extended_mixins import SubscriptionMixin
-
-# from opencve.utils import is_valid_uuid
-from cves.utils import list_to_dict_vendors
-
-logger = logging.getLogger(__name__)
+from cves.extended_utils import extended_list_filtered_cves, get_user_subscriptions
 
 
 class ExtendedCveViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ExtendedCveListSerializer
-    queryset = Cve.objects.order_by("-updated_at").all()
     permission_classes = [permissions.IsAuthenticated]
     lookup_field = "cve_id"
 
@@ -52,218 +30,64 @@ class ExtendedCveViewSet(viewsets.ReadOnlyModelViewSet):
     }
 
     def get_queryset(self):
-        if self.action == "retrieve":
-            return self.queryset
         return extended_list_filtered_cves(self.request.GET, self.request.user)
 
     def get_serializer_class(self):
         return self.serializer_classes.get(self.action, self.serializer_class)
 
-    def list(self, request, *args, **kwargs):
-        response = super().list(request, *args, **kwargs)
-
-        for cve_data in response.data:
-            logger.debug(f"Processing CVE: {cve_data}")
-            logger.debug(f"Type of cve_data: {type(cve_data)}")
-
-            # Если cve_data — строка, десериализуем её
-            if isinstance(cve_data, str):
-                try:
-                    cve_data = json.loads(cve_data)
-                except json.JSONDecodeError as e:
-                    logger.error(f"Invalid JSON data: {e}")
-                    continue
-
-            # Проверка структуры данных
-            if not isinstance(cve_data, dict) or "vendors" not in cve_data:
-                logger.warning(f"Invalid data format for CVE: {cve_data}")
-                continue
-
-            # Обработка данных
-            if isinstance(cve_data["vendors"], list) and all(
-                isinstance(v, str) for v in cve_data["vendors"]
-            ):
-                cve_data["vendors"] = list_to_dict_vendors(cve_data["vendors"])
-                cve_data["products"] = get_products(cve_data["vendors"])
-            else:
-                logger.warning(
-                    f"Invalid vendors format for CVE {cve_data.get('cve_id')}: {cve_data.get('vendors')}"
-                )
-                cve_data["vendors"] = (
-                    {}
-                )  # Возвращаем пустой словарь, если данные некорректны
-                cve_data["products"] = []  # Возвращаем пустой список продуктов
-
-        return response
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        if self.action == "list":
+            user = self.request.user
+            # Оптимизация: prefetch user's CveTag для всех CVE
+            context["request"] = self.request
+            # Внешний код должен делать prefetch, если нужно
+        return context
 
 
 class ExtendedWeaknessViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = WeaknessListSerializer
-    queryset = Weakness.objects.all().order_by("cwe_id")
+    queryset = Weakness.objects.order_by("cwe_id")
     permission_classes = [permissions.IsAuthenticated]
     lookup_field = "cwe_id"
 
 
 class ExtendedVendorViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ExtendedVendorListSerializer
-    permission_classes = (permissions.IsAuthenticated,)
-    queryset = Vendor.objects.order_by("name").all()
+    permission_classes = [permissions.IsAuthenticated]
+    queryset = Vendor.objects.order_by("name")
     lookup_field = "id"
-    lookup_url_kwarg = "id"
-    pagination_class = OptionalPagination
 
     def get_queryset(self):
-        """
-        Переопределение queryset для поддержки поиска.
-        """
-        queryset = Vendor.objects.order_by("name").all()
-
-        # Применяем фильтрацию только для действия list
-        if self.action == "list":
-            search_query = self.request.GET.get("search", None)
-            if search_query:
-                # Используем icontains для поиска без учета регистра
-                queryset = queryset.filter(name__icontains=search_query)
-
-        return queryset
-
-    def list(self, request, *args, **kwargs):
-        """
-        Возвращает список вендоров с поддержкой поиска.
-        """
-        queryset = self.get_queryset()
-        page = self.paginate_queryset(queryset)
-
-        # Создаем миксин для подписок
-        subscription_mixin = SubscriptionMixin()
-        subscription_mixin.context = {"request": request}
-
-        if page is not None:
-            serializer = self.get_serializer(
-                page, many=True, context={"subscription_mixin": subscription_mixin}
-            )
-            return self.get_paginated_response(serializer.data)
-
-        serializer = self.get_serializer(
-            queryset, many=True, context={"subscription_mixin": subscription_mixin}
-        )
-        return Response({"status": "success", "vendors": serializer.data})
-
-    def retrieve(self, request, *args, **kwargs):
-        instance = self.get_object()
-        subscription_mixin = SubscriptionMixin()
-        subscription_mixin.context = {"request": request}
-        serializer = self.get_serializer(
-            instance, context={"subscription_mixin": subscription_mixin}
-        )
-        return Response(serializer.data)
-
-    @action(detail=False, methods=["get"])
-    def search(self, request):
-        """
-        Отдельный endpoint для поиска вендоров.
-        """
-        search_query = request.query_params.get("q", "")
-        if not search_query:
-            return Response({"results": []})
-
-        # Используем icontains для поиска без учета регистра
-        vendors = Vendor.objects.filter(name__icontains=search_query)[:50]
-        serializer = self.get_serializer(vendors, many=True)
-        return Response({"results": serializer.data})
+        queryset = super().get_queryset()
+        search = self.request.GET.get("search")
+        if search:
+            queryset = queryset.filter(name__icontains=search)
+        # Оптимизация: предзагрузка продуктов для подсчёта
+        return queryset.prefetch_related("products")
 
 
 class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ExtendedProductListSerializer
-    permission_classes = (permissions.IsAuthenticated,)
+    permission_classes = [permissions.IsAuthenticated]
     lookup_field = "id"
-    lookup_url_kwarg = "id"
-    pagination_class = OptionalPagination
 
     def get_queryset(self):
-        """
-        Переопределение queryset для поддержки поиска по всем продуктам
-        или только по продуктам конкретного вендора.
-        """
-        vendor_id = self.kwargs.get(
-            "vendor_id"
-        )  # Используется lookup_url_kwarg из ViewSet
-        search_query = self.request.GET.get("search", None)
-        queryset = Product.objects.select_related("vendor").order_by("name")
-
-        if vendor_id:
-            # Фильтруем продукты по ID вендора
-            vendor = get_object_or_404(Vendor, id=vendor_id)
-            queryset = queryset.filter(vendor=vendor)
-
-        # Применяем фильтрацию по имени продукта, если есть параметр search
-        if search_query:
-            queryset = queryset.filter(name__icontains=search_query)
-
-        return queryset
-
-    def list(self, request, *args, **kwargs):
-        """
-        Возвращает список продуктов с поддержкой поиска.
-        """
-        queryset = self.get_queryset()
-        page = self.paginate_queryset(queryset)
-
-        subscription_mixin = SubscriptionMixin()
-        subscription_mixin.context = {"request": request}
+        base_qs = (
+            Product.objects.select_related("vendor")
+            .exclude(name__in=["", None])
+            .order_by("name")
+        )
         vendor_id = self.kwargs.get("vendor_id")
-        vendor_data = None
-        vendor_name = None
-
         if vendor_id:
-            vendor = get_object_or_404(Vendor, id=vendor_id)
-            vendor_name = vendor.name
-            vendor_data = {
-                "id": str(vendor.id),
-                "name": vendor_name,
-                "is_subscribed": subscription_mixin.get_subscription_status(
-                    "vendor", vendor_name
-                ),
-            }
+            get_object_or_404(Vendor, id=vendor_id)
+            base_qs = base_qs.filter(vendor_id=vendor_id)
+        return base_qs
 
-        context = {
-            "subscription_mixin": subscription_mixin,
-            "hide_vendor_in_product": bool(vendor_id),
-            "vendor_name": vendor_name,  # Передаем имя вендора в контекст
-        }
-
-        serializer = self.get_serializer(
-            page if page is not None else queryset, many=True, context=context
-        )
-
-        response_data = {"status": "success", "products": serializer.data}
-
-        # Добавляем вендора в корень для /vendor/*/product
-        if vendor_data:
-            response_data["vendor"] = vendor_data
-
-        if page is not None:
-            return self.get_paginated_response(response_data)
-
-        return Response(response_data)
-
-    def retrieve(self, request, *args, **kwargs):
-        instance = self.get_object()
-
-        subscription_mixin = SubscriptionMixin()
-        subscription_mixin.context = {"request": request}
-        context = {
-            "subscription_mixin": subscription_mixin,
-            "vendor_name": instance.vendor.name,
-            "hide_vendor_in_product": False,
-        }
-
-        serializer = self.get_serializer(
-            instance,
-            context=context,
-        )
-
-        return Response(serializer.data)
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["hide_vendor_in_product"] = bool(self.kwargs.get("vendor_id"))
+        return context
 
 
 class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
@@ -271,335 +95,29 @@ class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
     serializer_class = SubscriptionSerializer
 
     @action(detail=False, methods=["post"])
+    @transaction.atomic
     def subscribe(self, request):
-        """
-        Подписка на вендора или продукт.
-        """
-        return self._handle_subscription(request, "subscribe")
+        serializer = self.get_serializer(
+            data=request.data, context={"request": request}
+        )
+        serializer.is_valid(raise_exception=True)
+        result = serializer.save(action="subscribe")
+        return Response(result, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=["post"])
+    @transaction.atomic
     def unsubscribe(self, request):
-        """
-        Отписка от вендора или продукта.
-        """
-        return self._handle_subscription(request, "unsubscribe")
-
-    @action(detail=False, methods=["get"])
-    def project_subscriptions(self, request):
-        """
-        Получить подписки проекта.
-        """
-        project = self._get_project(request)
-        subscriptions = self._get_subscriptions(project=project)
-
-        if not subscriptions["vendors"] and not subscriptions["products"]:
-            return self._return_response({})
-
-        return self._return_response(subscriptions)
-
-    @action(detail=False, methods=["get"])
-    def check_user_in_project(self, request):
-        """
-        Проверить, принадлежит ли пользователь к проекту.
-        """
-        project_id = request.query_params.get("project_id")
-        project = get_object_or_404(Project, id=project_id)
-
-        organization = get_user_organization(request.user)
-        if not organization:
-            return self._return_response(
-                {"is_member": False},
-                error_message="User is not a member of any organization",
-            )
-
-        is_member = project.organization == organization
-        return self._return_response({"is_member": is_member})
+        serializer = self.get_serializer(
+            data=request.data, context={"request": request}
+        )
+        serializer.is_valid(raise_exception=True)
+        result = serializer.save(action="unsubscribe")
+        return Response(result, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["get"])
     def user_subscriptions(self, request):
-        """
-        Получить все подписки пользователя в формате:
-        [
-            {"type": "vendor", "id": "vendor_id", "name": "vendor_name"},
-            {"type": "product", "id": "product_id", "name": "vendor$PRODUCT$product_name"}
-        ]
-        """
-        organization = get_user_organization(request.user)
-        if not organization:
-            return self._return_response([])
-
-        projects = Project.objects.filter(organization=organization)
-        subscriptions = self._get_subscriptions(projects=projects)
-
-        if not subscriptions:
-            return self._return_response([])
-
-        return self._return_response(subscriptions)
-
-    @action(detail=False, methods=["get"])
-    def detailed_project_subscriptions(self, request):
-        """
-        Получить детальную информацию о подписках проекта.
-        """
-        project = self._get_project(request)
-        detailed_subscriptions = get_detailed_subscriptions(project)
-
-        if (
-            not detailed_subscriptions["subscriptions"]["vendors"]
-            and not detailed_subscriptions["subscriptions"]["products"]
-        ):
-            return self._return_response({})
-
-        # Сериализуем данные с помощью DetailedSubscriptionSerializer
-        serialized_data = DetailedSubscriptionSerializer(detailed_subscriptions).data
-        return self._return_response(serialized_data)
-
-    def _handle_subscription(self, request, action):
-        """
-        Обрабатывает подписку или отписку на вендора или продукта.
-        :param request: Запрос от клиента.
-        :param action: Действие ("subscribe" или "unsubscribe").
-        :return: Ответ с измененными подписками или ошибкой.
-        """
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        obj_type = serializer.validated_data["obj_type"]
-        obj_id = serializer.validated_data["obj_id"]
-        # Безопасное получение project_id, project_name и org_name
-        project_id = serializer.validated_data.get("project_id")  # Используем .get()
-        if project_id:
-            project = self._get_project_by_id(project_id)
-        else:
-            # Если project_id не указан, но есть имя проекта и организации, ищем проект по ним
-            organization = get_user_organization(request.user)
-            if not organization:
-                return self._return_response(
-                    {}, error_message=f"User is not a member of any organization"
-                )
-
-            default_project_name = getattr(
-                settings, "GLOBAL_DEFAULT_PROJECT_NAME", "default"
-            )
-            project = get_object_or_404(
-                Project,
-                name=default_project_name,
-                organization=organization,
-            )
-
-        return self._process_subscription(project, obj_id, obj_type, action)
-
-    def _process_subscription(self, project, obj_id, obj_type, action):
-        """
-        Обрабатывает подписку/отписку на vendor/product.
-        Возвращает:
-        - 400 при ошибках валидации
-        - 400 если объект не найден
-        - 200 с актуальными подписками при успехе
-        """
-
-        OBJ_CONFIG = {
-            "vendor": {"model": Vendor, "name_attr": "name", "key": "vendors"},
-            "product": {
-                "model": Product,
-                "name_attr": "vendored_name",
-                "key": "products",
-            },
-        }
-
-        # 1. Валидация входных данных
-        if obj_type not in OBJ_CONFIG:
-            return self._return_response(
-                {},
-                error_message="Invalid object type: must be 'vendor' or 'product'",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if action not in ("subscribe", "unsubscribe"):
-            return self._return_response(
-                {},
-                error_message="Invalid action: must be 'subscribe' or 'unsubscribe'",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            )
-
-        config = OBJ_CONFIG[obj_type]
-
-        # 2. Получение объекта
-        try:
-            obj = config["model"].objects.get(id=obj_id)
-            obj_name = getattr(obj, config["name_attr"])
-        except config["model"].DoesNotExist:
-            return self._return_response(
-                {},
-                error_message=f"{obj_type.capitalize()} with id {obj_id} not found",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # 3. Работа с подписками
-        subscriptions = set(project.subscriptions.get(config["key"], []))
-
-        # 4. Логика подписки/отписки
-        if action == "subscribe":
-            if obj_name in subscriptions:
-                return self._return_response(
-                    {},
-                    error_message=f"Already subscribed to this {obj_type}",
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                )
-            subscriptions.add(obj_name)
-            message = f"Successfully subscribed to {obj_type}: {obj_name}"
-
-        else:  # unsubscribe
-            if obj_name not in subscriptions:
-                return self._return_response(
-                    {},
-                    error_message=f"Not subscribed to this {obj_type}",
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                )
-            subscriptions.remove(obj_name)
-            message = f"Successfully unsubscribed from {obj_type}: {obj_name}"
-
-        # 5. Сохранение изменений
-        with transaction.atomic():
-            project.subscriptions[config["key"]] = list(subscriptions)
-            project.save(update_fields=["subscriptions"])
-
-        # 6. Формирование ответа
-        response_data = {
-            "subscriptions": self._get_subscriptions(project=project),
-            "message": message,
-            "changed": {
-                "type": obj_type,
-                "id": str(obj.id),
-                "name": obj_name,
-                "action": action,
-            },
-        }
-
-        return self._return_response(response_data, status_code=status.HTTP_200_OK)
-
-    def _get_project_subscriptions(self, project):
-        """
-        Возвращает информацию о текущих подписках проекта.
-        :param project: Проект, для которого возвращаются подписки.
-        :return: Сериализованные данные о подписках.
-        """
-        subscriptions = {
-            "vendors": project.subscriptions.get("vendors", []),
-            "products": project.subscriptions.get("products", []),
-        }
-
-        if not subscriptions["vendors"] and not subscriptions["products"]:
-            return {"message": "No subscriptions found for this project"}
-
-        return ProjectSubscriptionsSerializer(subscriptions).data
-
-    def _get_project(self, request):
-        """
-        Получает проект по project_id из запроса и проверяет, принадлежит ли он организации пользователя.
-        :param request: Запрос от клиента.
-        :return: Проект.
-        """
-        project_id = request.query_params.get("project_id")
-        return self._get_project_by_id(project_id)
-
-    def _get_project_by_id(self, project_id):
-        """
-        Получает проект по project_id и проверяет, принадлежит ли он организации пользователя.
-        :param project_id: UUID проекта.
-        :return: Проект.
-        """
-        organization = get_user_organization(self.request.user)
-        if not organization:
-            raise Http404("User is not a member of any organization")
-
-        # Получаем проект по ID
-        project = get_object_or_404(Project, id=project_id, organization=organization)
-
-        return project
-
-    def _get_subscriptions(self, project=None, projects=None):
-        """
-        Возвращает подписки для проекта или списка проектов в формате:
-        [{"type": "vendor", "id": "vendor_id", "name": "vendor_name"}, ...]
-        """
-        subscriptions = []
-
-        if project:
-            projects = [project]
-
-        for project in projects:
-            # Обработка подписок на вендоров
-            for vendor_name in project.subscriptions.get("vendors", []):
-                vendor = Vendor.objects.filter(name=vendor_name).first()
-                if vendor:
-                    subscriptions.append(
-                        {"type": "vendor", "id": str(vendor.id), "name": vendor.name}
-                    )
-
-            # Обработка подписок на продукты
-            for product_name in project.subscriptions.get("products", []):
-                vendor_part, p_name = product_name.split(PRODUCT_SEPARATOR)
-                product = Product.objects.filter(
-                    name=p_name, vendor__name=vendor_part
-                ).first()
-                if product:
-                    subscriptions.append(
-                        {
-                            "type": "product",
-                            "id": str(product.id),
-                            "name": f"{p_name}",
-                        }
-                    )
-
-        return subscriptions
-
-    def _return_response(
-        self, data, success_message=None, error_message=None, status_code=None
-    ):
-        """
-        Возвращает Response с данными или сообщением об ошибке.
-
-        :param data: Данные для возврата.
-        :param success_message: Сообщение об успешной операции.
-        :param error_message: Сообщение об ошибке.
-        :param status_code: HTTP-статус код ответа (например, 200, 400).
-        :return: Response.
-        """
-        if error_message:
-            return Response(
-                {"status": "error", "message": error_message},
-                status=status_code or status.HTTP_400_BAD_REQUEST,
-            )
-
-        if success_message:
-            response_data = {"status": "success", "message": success_message}
-            if data:
-                if isinstance(data, dict):
-                    response_data.update(data)
-                else:
-                    response_data["data"] = data
-            return Response(response_data, status=status_code or status.HTTP_200_OK)
-
-        if not data:
-            return Response(
-                {
-                    "status": "success",
-                    "message": success_message or "Operation successful",
-                },
-                status=status_code or status.HTTP_204_NO_CONTENT,
-            )
-
-        # Handle both dict and list types safely
-        if isinstance(data, dict):
-            return Response(
-                {"status": "success", **data}, status=status_code or status.HTTP_200_OK
-            )
-        else:
-            return Response(
-                {"status": "success", "data": data},
-                status=status_code or status.HTTP_200_OK,
-            )
+        subscriptions = get_user_subscriptions(request.user)
+        return Response(subscriptions)
 
 
 class UserTagViewSet(viewsets.ModelViewSet):
@@ -607,12 +125,48 @@ class UserTagViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # Возвращаем только теги текущего пользователя
-        return UserTag.objects.filter(user=self.request.user)
+        return UserTag.objects.filter(user=self.request.user).order_by("name")
 
     def perform_create(self, serializer):
-        # Автоматически назначаем текущего пользователя как владельца тега
         serializer.save(user=self.request.user)
+
+    @action(detail=True, methods=["post"])
+    @transaction.atomic
+    def assign_to_cves(self, request, pk=None):
+        user_tag = self.get_object()
+        cve_ids = request.data.get("cve_ids", [])
+
+        if not isinstance(cve_ids, list):
+            return Response({"detail": "cve_ids must be a list"}, status=400)
+        if not cve_ids:
+            return Response({"detail": "cve_ids is required"}, status=400)
+
+        cves = Cve.objects.filter(cve_id__in=cve_ids)
+        found_ids = {cve.cve_id for cve in cves}
+        missing = set(cve_ids) - found_ids
+        if missing:
+            return Response(
+                {"detail": f"CVEs not found: {', '.join(missing)}"}, status=404
+            )
+
+        updated_count = 0
+        for cve in cves:
+            cve_tag, created = CveTag.objects.get_or_create(
+                cve=cve, user=request.user, defaults={"tags": []}
+            )
+            if user_tag.name not in cve_tag.tags:
+                cve_tag.tags.append(user_tag.name)
+                cve_tag.save()
+                updated_count += 1
+
+        return Response(
+            {
+                "status": "success",
+                "assigned_to": updated_count,
+                "tag": UserTagSerializer(user_tag).data,
+                "cves": list(found_ids),
+            }
+        )
 
 
 class CveTagViewSet(viewsets.ModelViewSet):
@@ -620,55 +174,23 @@ class CveTagViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # Возвращаем только теги, связанные с текущим пользователем
         return CveTag.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        # Вызывается внутри create(), перед сохранением
+        serializer.save(user=self.request.user)
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
-        # Получаем cve_ids и tags из тела запроса
-        cve_ids = request.data.get("cve_ids", [])
-        tags = request.data.get("tags", [])
-
-        # Проверяем, что cve_ids и tags переданы
-        if not cve_ids or not tags:
-            raise ValidationError(
-                {"detail": "Both 'cve_ids' and 'tags' are required."},
-                code=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Преобразуем cve_ids и tags в списки (если они переданы как строки)
-        cve_ids = [cve_ids] if isinstance(cve_ids, str) else cve_ids
-        tags = [tags] if isinstance(tags, str) else tags
-
-        # Убираем дубликаты тегов
-        tags = list(set(tags))
-
-        # Получаем объекты Cve по cve_ids
-        cves = []
-        for cve_id in cve_ids:
-            cve = get_object_or_404(Cve, cve_id=cve_id)
-            cves.append(cve)
-
-        # Передаем объекты Cve и текущего пользователя в контекст сериализатора
-        serializer = self.get_serializer(data={"cve_ids": cve_ids, "tags": tags})
-        serializer.context["cves"] = cves
-        serializer.context["request"] = request  # Передаем request в контекст
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
-        # Создаем или обновляем теги
-        created_tags = serializer.save()
-
-        # Сериализуем созданные теги с many=True
-        serializer = self.get_serializer(created_tags, many=True)
-
-        # Возвращаем ответ
-        response_data = {
-            "status": "success",
-            "message": "Tags assigned successfully.",
-            "data": serializer.data,
-        }
-        return Response(response_data, status=status.HTTP_201_CREATED)
-
-    def perform_create(self, serializer):
-        # Текущий пользователь автоматически добавляется в validated_data
-        serializer.save()
+        instances = serializer.save()  # возвращает список CveTag
+        response_data = CveTagSerializer(instances, many=True).data
+        return Response(
+            {
+                "status": "success",
+                "message": f"Tags applied to {len(instances)} CVE(s).",
+                "data": response_data,
+            },
+            status=status.HTTP_201_CREATED,
+        )

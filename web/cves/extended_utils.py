@@ -1,9 +1,10 @@
+from typing import Dict, List, Optional, Any
 from cves.utils import list_filtered_cves, list_to_dict_vendors
 from cves.models import Vendor, Product, Cve
 from organizations.models import Membership
+from django.utils.dateparse import parse_date
 from projects.models import Project
 from django.conf import settings
-import json
 import logging
 from cves.constants import PRODUCT_SEPARATOR
 from cves.templatetags.opencve_extras import (
@@ -13,59 +14,112 @@ from cves.templatetags.opencve_extras import (
 logger = logging.getLogger(__name__)
 
 
-def extended_list_filtered_cves(params, user):
+# QuerySet[Cve]
+def extended_list_filtered_cves(params: Dict[str, Any], user) -> Any:
+    """
+    Расширенная фильтрация CVE с поддержкой фильтрации по created_at и updated_at.
+    """
     queryset = list_filtered_cves(params, user)
 
-    created_at = params.get("created_at")
-    if created_at:
-        queryset = queryset.filter(created_at__date__gte=created_at)
-
-    updated_at = params.get("updated_at")
-    if updated_at:
-        queryset = queryset.filter(updated_at__date__gte=updated_at)
+    for date_field, param_key in [
+        ("created_at__date__gte", "created_at"),
+        ("updated_at__date__gte", "updated_at"),
+    ]:
+        date_str = params.get(param_key)
+        if date_str:
+            parsed = parse_date(date_str)
+            if parsed:
+                queryset = queryset.filter(**{date_field: parsed})
 
     return queryset
 
 
-def get_products(vendors_dict):
+def get_user_subscriptions(user):
+    try:
+        project = _get_current_project(user)
+        if not project:
+            return {"vendors": [], "products": []}
+        return {
+            "vendors": project.subscriptions.get("vendors", []),
+            "products": project.subscriptions.get("products", []),
+        }
+    except Exception as e:
+        logger.error(f"Error getting user subscriptions: {e}")
+        return {"vendors": [], "products": []}
+
+
+def list_filtered_products(queryset, params, user):
+    """
+    Фильтрация queryset продуктов по параметрам.
+    Пока только search и vendor_id, но можно расширять.
+    """
+    vendor_id = params.get("vendor_id")
+    if vendor_id:
+        queryset = queryset.filter(vendor_id=vendor_id)
+
+    search = params.get("search")
+    if search:
+        queryset = queryset.filter(name__icontains=search)
+
+    return queryset
+
+
+def get_products(vendors_dict: Dict[str, List[str]]) -> List[str]:
+    """
+    Извлекает список имён продуктов из словаря vendors_dict.
+    Args:
+        vendors_dict: { vendor_name: [product_name, ...], ... }
+
+    Returns:
+        Список уникальных продуктов.
+    """
     products = []
-    for vendor_name, product_names in vendors_dict.items():
-        vendor = Vendor.objects.filter(name=vendor_name).first()
-        if vendor:
-            if product_names:
-                products.extend(product_names)
-            else:
-                vendor_products = Product.objects.filter(vendor=vendor)
-                products.extend([product.name for product in vendor_products])
-    return products
+    for product_names in vendors_dict.values():
+        if product_names:
+            products.extend(product_names)
+    return list(set(products))
 
 
-def get_humanized_title(cvss_human_score, cve_id, vendors):
+def get_humanized_title(
+    cvss_human_score: Optional[str], cve_id: Optional[str], vendors: List[str]
+) -> str:
+    """
+    Генерирует человекочитаемое название уведомления на основе CVSS, CVE ID и списка вендоров/продуктов.
+    """
     vendors_dict = list_to_dict_vendors(vendors)
     products = get_products(vendors_dict)
 
     parts = []
+
     if cvss_human_score:
         parts.append(f"{cvss_human_score} severity")
     if cve_id:
         parts.append(f"({cve_id})")
-    if vendors_dict:
-        vendor_names = list(vendors_dict.keys())
-        if len(vendor_names) == 1:
-            parts.append(f"in {vendor_names[0]}")
-        else:
-            parts.append(f"in {vendor_names[0]} and {len(vendor_names) - 1} other")
-    if products:
-        if len(products) == 1:
-            parts.append(f"affecting {products[0]}")
-        else:
-            parts.append(f"affecting {products[0]} and {len(products) - 1} other")
-    if not parts:
-        return "No title available"
-    return " ".join(parts)
+
+    # Вендоры
+    vendor_names = list(vendors_dict.keys())
+    if len(vendor_names) == 1:
+        parts.append(f"in {vendor_names[0]}")
+    elif len(vendor_names) > 1:
+        n = len(vendor_names) - 1
+        suffix = "other" if n == 1 else "others"
+        parts.append(f"in {vendor_names[0]} and {n} {suffix}")
+
+    # Продукты
+    if len(products) == 1:
+        parts.append(f"affecting {products[0]}")
+    elif len(products) > 1:
+        n = len(products) - 1
+        suffix = "other" if n == 1 else "others"
+        parts.append(f"affecting {products[0]} and {n} {suffix}")
+
+    return " ".join(parts) if parts else "No title available"
 
 
-def get_detailed_subscriptions(project):
+def get_detailed_subscriptions(project: Project) -> Dict[str, Any]:
+    """
+    Возвращает детали подписок проекта: вендоры, продукты, их ID и имена.
+    """
     vendor_names = project.subscriptions.get("vendors", [])
     product_names = project.subscriptions.get("products", [])
 
@@ -75,117 +129,142 @@ def get_detailed_subscriptions(project):
     return {
         "project_id": project.id,
         "subscriptions": {
-            "vendors": [vendor.name for vendor in vendors],
-            "products": [product.vendored_name for product in products],
+            "vendors": [v.human_name for v in vendors],
+            "products": [p.human_name for p in products],
         },
-        "vendor_details": [
-            {"id": vendor.id, "name": vendor.name} for vendor in vendors
-        ],
+        "vendor_details": [{"id": v.id, "name": v.human_name} for v in vendors],
         "product_details": [
-            {"id": product.id, "name": product.name, "vendor": product.vendor.name}
-            for product in products
+            {
+                "id": p.id,
+                "name": p.human_name,
+                "vendor": p.vendor.human_name,
+            }
+            for p in products
         ],
     }
 
 
-def get_user_organization(user):
+def get_user_organization(user) -> Optional[Any]:  # Organization or None
+    """
+    Возвращает организацию пользователя или None.
+    """
     membership = Membership.objects.filter(user=user).first()
     return membership.organization if membership else None
 
 
-def get_subscription_status(obj_type, obj_name, user):
+def get_subscription_status(obj_type: str, obj_name: str, user) -> bool:
+    """
+    Проверяет, подписан ли пользователь на объект (vendor/product).
+    """
+    if obj_type not in ["vendor", "product"]:
+        return False
+
     try:
         project = _get_current_project(user)
         if not project:
             return False
 
-        if obj_type == "vendor":
-            subscribed_items = project.subscriptions.get("vendors", [])
-            return obj_name in subscribed_items
-        elif obj_type == "product":
-            subscribed_items = project.subscriptions.get("products", [])
-            return obj_name in subscribed_items
-        return False
+        subscribed_items = project.subscriptions.get(
+            "vendors" if obj_type == "vendor" else "products", []
+        )
+        return obj_name in subscribed_items
+
     except Exception as e:
-        logger.error(f"Error checking subscription: {e}")
+        logger.error(f"Error checking subscription for {obj_type} '{obj_name}': {e}")
         return False
 
 
-def _get_current_project(user):
+def _get_current_project(user) -> Optional[Project]:
+    """
+    Возвращает текущий проект пользователя (по умолчанию).
+    """
     organization = get_user_organization(user)
     if not organization:
-        logger.error(f"{user} not found in org")
+        logger.error(f"User {user} is not in any organization.")
         return None
 
     default_project_name = getattr(settings, "GLOBAL_DEFAULT_PROJECT_NAME", "default")
-    return Project.objects.filter(
-        name=default_project_name, organization=organization
-    ).first()
+    try:
+        return Project.objects.get(name=default_project_name, organization=organization)
+    except Project.DoesNotExist:
+        logger.warning(
+            f"Default project '{default_project_name}' not found for organization {organization}."
+        )
+        return None
 
 
-def get_cvss_data(instance):
+def get_cvss_data(instance) -> Optional[Dict[str, Any]]:
+    """
+    Ищет первый доступный CVSS-метрик с полем 'score'.
+    """
     cvss_fields = ["cvssV4_0", "cvssV3_1", "cvssV3_0", "cvssV2_0"]
     for field in cvss_fields:
         cvss = instance.metrics.get(field, {}).get("data", {})
-        if cvss and "score" in cvss:
+        if cvss.get("score") is not None:
             return cvss
     return None
 
 
-def get_cvss_human_score(score):
-    return get_cvss_human_score_from_lib(score).title() if score else None
+def get_cvss_human_score(score: Optional[float]) -> Optional[str]:
+    """
+    Возвращает человекочитаемую оценку CVSS (например, "High").
+    """
+    if not score:
+        return None
+    return get_cvss_human_score_from_lib(score).title()
 
 
-def get_vendors_list(instance):
-    vendors = instance.vendors
-    if isinstance(vendors, str):
-        try:
-            vendors = json.loads(vendors)
-        except json.JSONDecodeError:
-            logger.warning(f"Vendors is a string for CVE {instance.cve_id}: {vendors}")
-            vendors = [vendors]
-
+def get_vendors_list(instance) -> List[str]:
+    """
+    Извлекает уникальные имена вендоров из списка `instance.vendors`.
+    Формат: vendor или vendor###product.
+    """
+    vendors = getattr(instance, "vendors", [])
     if not isinstance(vendors, list):
         return []
 
-    vendors_list = [v.split("$PRODUCT$")[0] if "$PRODUCT$" in v else v for v in vendors]
-    return list(set(vendors_list))
+    return list(
+        {
+            v.split(PRODUCT_SEPARATOR, 1)[0] if PRODUCT_SEPARATOR in v else v
+            for v in vendors
+        }
+    )
 
 
-def get_products_list(instance):
-    vendors = instance.vendors
-    products = set()
+def get_products_list(instance) -> List[str]:
+    """
+    Извлекает уникальные имена продуктов из `instance.vendors`.
+    """
+    vendors = getattr(instance, "vendors", [])
+    if not isinstance(vendors, list):
+        return list()
 
-    if isinstance(vendors, list):
-        products.update(v.split("$PRODUCT$")[1] for v in vendors if "$PRODUCT$" in v)
-    elif isinstance(vendors, str):
-        try:
-            vendors_list = json.loads(vendors)
-            products.update(
-                v.split("$PRODUCT$")[1] for v in vendors_list if "$PRODUCT$" in v
-            )
-        except json.JSONDecodeError:
-            logger.warning(f"Vendors is a string for CVE {instance.cve_id}: {vendors}")
-            if "$PRODUCT$" in vendors:
-                products.add(vendors.split("$PRODUCT$")[1])
-
+    products = {
+        v.split(PRODUCT_SEPARATOR, 1)[1] for v in vendors if PRODUCT_SEPARATOR in v
+    }
     return list(products)
 
 
-def get_vendors_with_subscriptions(instance, user):
+def get_vendors_with_subscriptions(instance, user) -> List[Dict[str, Any]]:
+    """
+    Возвращает список вендоров с флагом подписки.
+    """
     vendor_names = get_vendors_list(instance)
     return [
         {
-            "name": vendor_name,
-            "is_subscribed": get_subscription_status("vendor", vendor_name, user),
+            "name": name,
+            "is_subscribed": get_subscription_status("vendor", name, user),
         }
-        for vendor_name in vendor_names
+        for name in vendor_names
     ]
 
 
-def get_products_with_subscriptions(instance, user):
+def get_products_with_subscriptions(instance, user) -> List[Dict[str, Any]]:
+    """
+    Возвращает список продуктов с флагом подписки и именем вендора.
+    """
     product_names = get_products_list(instance)
-    vendors_dict = list_to_dict_vendors(instance.vendors)
+    vendors_dict = list_to_dict_vendors(getattr(instance, "vendors", []))
 
     result = []
     for product_name in product_names:
@@ -193,25 +272,15 @@ def get_products_with_subscriptions(instance, user):
             (v for v, products in vendors_dict.items() if product_name in products),
             None,
         )
-        if vendor_name:
-            full_name = f"{vendor_name}{PRODUCT_SEPARATOR}{product_name}"
-            result.append(
-                {
-                    "name": product_name,
-                    "vendor": vendor_name,
-                    "is_subscribed": get_subscription_status(
-                        "product", full_name, user
-                    ),
-                }
-            )
+        if not vendor_name:
+            continue
+
+        full_name = f"{vendor_name}{PRODUCT_SEPARATOR}{product_name}"
+        result.append(
+            {
+                "name": product_name,
+                "vendor": vendor_name,
+                "is_subscribed": get_subscription_status("product", full_name, user),
+            }
+        )
     return result
-
-
-class OptionalPagination(PageNumberPagination):
-    page_size_query_param = "page_size"
-    max_page_size = 1000
-
-    def paginate_queryset(self, queryset, request, view=None):
-        if request.query_params.get(self.page_size_query_param) == "all":
-            return None
-        return super().paginate_queryset(queryset, request, view)
