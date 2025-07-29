@@ -202,9 +202,21 @@ class SubscriptionSerializer(serializers.Serializer):
 
 # --- Vendor & Product Serializers ---
 class VendorSerializer(serializers.ModelSerializer):
+    is_subscribed = serializers.SerializerMethodField()
+    name = serializers.SerializerMethodField()
+
     class Meta:
         model = Vendor
-        fields = ["id", "name"]
+        fields = ["id", "name", "is_subscribed"]
+
+    def get_name(self, obj):
+        return obj.human_name
+
+    def get_is_subscribed(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return False
+        return get_subscription_status("vendor", obj.name, request.user)
 
 
 class ExtendedVendorListSerializer(serializers.ModelSerializer):
@@ -255,7 +267,7 @@ class ExtendedProductListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Product
-        fields = ["id", "name", "vendor", "is_subscribed"]
+        fields = ["id", "name", "is_subscribed"]
 
     def get_is_subscribed(self, obj: Product) -> bool:
         request = self.context.get("request")
@@ -268,6 +280,12 @@ class ExtendedProductListSerializer(serializers.ModelSerializer):
         if self.context.get("hide_vendor_in_product"):
             return None
         return VendorSerializer(obj.vendor).data
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if self.context.get("hide_vendor_in_product"):
+            data.pop("vendor", None)  # Удаляем поле vendor полностью
+        return data
 
 
 # --- Tag Serializers ---

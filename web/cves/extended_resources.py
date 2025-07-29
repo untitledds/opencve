@@ -15,8 +15,35 @@ from cves.extended_serializers import (
     CveTagSerializer,
     ExtendedVendorListSerializer,
     ExtendedProductListSerializer,
+    VendorSerializer,
 )
-from cves.extended_utils import extended_list_filtered_cves, get_user_subscriptions
+from cves.extended_utils import (
+    extended_list_filtered_cves,
+    get_user_subscriptions,
+)
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.response import Response
+
+
+class ProductWithVendorPagination(PageNumberPagination):
+    """
+    Пагинация, которая добавляет vendor в корень ответа, если он есть.
+    """
+
+    def __init__(self):
+        self.vendor = None
+        super().__init__()
+
+    def get_paginated_response(self, data):
+        response_data = {
+            "count": self.page.paginator.count,
+            "next": self.get_next_link(),
+            "previous": self.get_previous_link(),
+            "results": data,
+        }
+        if self.vendor is not None:
+            response_data["vendor"] = self.vendor
+        return Response(response_data)
 
 
 class ExtendedCveViewSet(viewsets.ReadOnlyModelViewSet):
@@ -72,6 +99,7 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     lookup_field = "id"
     lookup_url_kwarg = "id"
+    pagination_class = ProductWithVendorPagination
 
     def get_queryset(self):
         base_qs = (
@@ -93,6 +121,27 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
         context = super().get_serializer_context()
         context["hide_vendor_in_product"] = bool(self.kwargs.get("vendor_id"))
         return context
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+
+        # Если пагинация активна и есть vendor_id → добавляем vendor в пагинатор
+        if page is not None and hasattr(self.paginator, "vendor"):
+            vendor_id = self.kwargs.get("vendor_id")
+            if vendor_id:
+                try:
+                    vendor = Vendor.objects.get(id=vendor_id)
+                    request_user = request.user
+                    # Теперь используем VendorSerializer для консистентности
+                    self.paginator.vendor = VendorSerializer(
+                        vendor, context=self.get_serializer_context()
+                    ).data
+                except Vendor.DoesNotExist:
+                    pass  # уже проверено в get_queryset
+
+        serializer = self.get_serializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
 
 
 class ExtendedSubscriptionViewSet(viewsets.GenericViewSet):
