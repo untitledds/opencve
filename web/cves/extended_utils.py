@@ -7,6 +7,7 @@ from projects.models import Project
 from django.conf import settings
 import logging
 from cves.constants import PRODUCT_SEPARATOR
+from django.db.models import Q, QuerySet
 from cves.templatetags.opencve_extras import (
     cvss_human_score as get_cvss_human_score_from_lib,
 )
@@ -15,12 +16,16 @@ logger = logging.getLogger(__name__)
 
 
 # QuerySet[Cve]
-def extended_list_filtered_cves(params: Dict[str, Any], user) -> Any:
+def extended_list_filtered_cves(params: Dict[str, Any], user) -> QuerySet[Cve]:
     """
-    Расширенная фильтрация CVE с поддержкой фильтрации по created_at и updated_at.
+    Расширенная фильтрация CVE с поддержкой:
+    - created_at / updated_at
+    - project_only=true → только CVE по подпискам дефолтного проекта
     """
+    # Начинаем с базовой фильтрации (поиск и т.п.)
     queryset = list_filtered_cves(params, user)
 
+    # Фильтрация по датам
     for date_field, param_key in [
         ("created_at__date__gte", "created_at"),
         ("updated_at__date__gte", "updated_at"),
@@ -30,6 +35,12 @@ def extended_list_filtered_cves(params: Dict[str, Any], user) -> Any:
             parsed = parse_date(date_str)
             if parsed:
                 queryset = queryset.filter(**{date_field: parsed})
+
+    # Фильтрация по подпискам проекта (если запрошено)
+    if params.get("project_only", "").lower() == "true":
+        from .extended_utils import filter_cves_by_project_subscriptions
+
+        queryset = filter_cves_by_project_subscriptions(queryset, user)
 
     return queryset
 
@@ -324,3 +335,37 @@ def get_products_with_subscriptions(instance, user) -> List[Dict[str, Any]]:
             }
         )
     return result
+
+
+def filter_cves_by_project_subscriptions(queryset, user):
+    """
+    Фильтрует CVE по подпискам проекта с использованием JSONField
+    и существующих GinIndex для максимальной производительности.
+    """
+    project = _get_current_project(user)
+    if not project:
+        return queryset.none()
+
+    subscribed_vendors = project.subscriptions.get("vendors", [])
+    subscribed_products = project.subscriptions.get("products", [])
+
+    if not subscribed_vendors and not subscribed_products:
+        return queryset.none()
+
+    conditions = Q()
+
+    # 1. Фильтр по вендорам
+    if subscribed_vendors:
+        vendor_conditions = Q()
+        for vendor in subscribed_vendors:
+            vendor_conditions |= Q(vendors__contains=[vendor])
+        conditions |= vendor_conditions
+
+    # 2. Фильтр по продуктам
+    if subscribed_products:
+        product_conditions = Q()
+        for product in subscribed_products:
+            product_conditions |= Q(vendors__contains=[product])
+        conditions |= product_conditions
+
+    return queryset.filter(conditions).distinct()
