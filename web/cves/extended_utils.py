@@ -1,3 +1,4 @@
+from django.db.models import Q
 from typing import Dict, List, Optional, Any
 from cves.utils import list_filtered_cves, list_to_dict_vendors
 from cves.models import Vendor, Product, Cve
@@ -67,9 +68,7 @@ def get_user_subscriptions(user):
 
         # Получаем объекты
         vendors = Vendor.objects.filter(name__in=vendor_names)
-        products = Product.objects.filter(
-            vendored_name__in=product_names
-        ).select_related("vendor")
+        products = get_products_from_vendored_names(product_names)
 
         # Формируем ответ
         result = {
@@ -369,3 +368,21 @@ def filter_cves_by_project_subscriptions(queryset, user):
         conditions |= product_conditions
 
     return queryset.filter(conditions).distinct()
+
+
+def get_products_from_vendored_names(vendored_names):
+    """
+    Принимает список вида ['vendor$PRODUCT$product', ...]
+    Возвращает QuerySet Product, соответствующих этим именам.
+    """
+    if not vendored_names:
+        return Product.objects.none()
+
+    q = Q()
+    for full_name in vendored_names:
+        if "$PRODUCT$" not in full_name:
+            continue
+        vendor_name, product_name = full_name.split("$PRODUCT$", 1)
+        q |= Q(vendor__name=vendor_name, name=product_name)
+
+    return Product.objects.filter(q).select_related("vendor")
