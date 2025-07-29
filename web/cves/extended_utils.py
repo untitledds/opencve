@@ -35,14 +35,54 @@ def extended_list_filtered_cves(params: Dict[str, Any], user) -> Any:
 
 
 def get_user_subscriptions(user):
+    """
+    Возвращает подписки пользователя в формате:
+    {
+        "vendors": [
+            {"type": "vendor", "id": "...", "name": "Human Name"}
+        ],
+        "products": [
+            {"type": "product", "id": "...", "name": "Human Name", "vendor": "Vendor Name"}
+        ]
+    }
+    """
     try:
         project = _get_current_project(user)
         if not project:
             return {"vendors": [], "products": []}
-        return {
-            "vendors": project.subscriptions.get("vendors", []),
-            "products": project.subscriptions.get("products", []),
+
+        vendor_names = project.subscriptions.get("vendors", [])
+        product_names = project.subscriptions.get("products", [])  # это vendored_name
+
+        # Получаем объекты
+        vendors = Vendor.objects.filter(name__in=vendor_names)
+        products = Product.objects.filter(
+            vendored_name__in=product_names
+        ).select_related("vendor")
+
+        # Формируем ответ
+        result = {
+            "vendors": [
+                {
+                    "type": "vendor",
+                    "id": str(vendor.id),
+                    "name": vendor.human_name,
+                }
+                for vendor in vendors
+            ],
+            "products": [
+                {
+                    "type": "product",
+                    "id": str(product.id),
+                    "name": product.human_name,
+                    "vendor": product.vendor.human_name,
+                }
+                for product in products
+            ],
         }
+
+        return result
+
     except Exception as e:
         logger.error(f"Error getting user subscriptions: {e}")
         return {"vendors": [], "products": []}

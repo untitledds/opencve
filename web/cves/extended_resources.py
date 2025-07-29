@@ -71,6 +71,7 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ExtendedProductListSerializer
     permission_classes = [permissions.IsAuthenticated]
     lookup_field = "id"
+    lookup_url_kwarg = "id"
 
     def get_queryset(self):
         base_qs = (
@@ -82,6 +83,10 @@ class ExtendedProductViewSet(viewsets.ReadOnlyModelViewSet):
         if vendor_id:
             get_object_or_404(Vendor, id=vendor_id)
             base_qs = base_qs.filter(vendor_id=vendor_id)
+        search = self.request.GET.get("search")
+        if search:
+            base_qs = base_qs.filter(name__icontains=search)
+
         return base_qs
 
     def get_serializer_context(self):
