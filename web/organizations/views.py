@@ -20,6 +20,10 @@ from opencve.mixins import RequestViewMixin
 from organizations.forms import MembershipForm, OrganizationForm
 from organizations.mixins import OrganizationIsOwnerMixin
 from organizations.models import Membership, Organization
+from organizations.utils import (
+    send_organization_invitation_email,
+    send_organization_signup_invitation_email,
+)
 from users.models import User
 
 
@@ -28,7 +32,12 @@ class OrganizationsListView(LoginRequiredMixin, ListView):
     template_name = "organizations/list_organizations.html"
 
     def get_queryset(self):
-        query = Membership.objects.filter(user=self.request.user).all()
+        query = (
+            Membership.objects.filter(user=self.request.user)
+            .select_related("organization")
+            .prefetch_related("organization__membership_set__user")
+            .all()
+        )
         return query.order_by("organization__name")
 
 
@@ -71,19 +80,19 @@ class OrganizationEditView(
     slug_url_kwarg = "org_name"
     context_object_name = "organization"
 
-    def get_form(self, form_class=None):
-        form = super().get_form()
-        form.fields["name"].disabled = True
-        return form
-
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["members"] = Membership.objects.filter(organization=self.get_object())
+        context["members"] = Membership.objects.filter(
+            organization=self.request.current_organization
+        )
         context["members_form"] = MembershipForm(initial={"role": Membership.MEMBER})
         return context
 
     def get_success_url(self):
-        return reverse("edit_organization", kwargs={"org_name": self.object.name})
+        return reverse(
+            "edit_organization",
+            kwargs={"org_name": self.object.name},
+        )
 
 
 class OrganizationDeleteView(
@@ -109,47 +118,84 @@ class OrganizationMembersFormView(
     model = Organization
     slug_field = "name"
     slug_url_kwarg = "org_name"
-    success_message = "The new member has been added."
 
     def post(self, request, *args, **kwargs):
-        object = self.get_object()
+        organization = request.current_organization
 
         # Check the form validity
         form = self.get_form_class()(request.POST)
         if not form.is_valid():
             messages.error(request, "Error in the form")
             return redirect(
-                reverse("edit_organization", kwargs={"org_name": object.name})
+                reverse("edit_organization", kwargs={"org_name": organization.name})
             )
+
+        email = form.cleaned_data["email"]
 
         # Check if the invited user exists
-        user = User.objects.filter(email=form.cleaned_data["email"]).first()
-        if not user:
-            messages.error(request, "User not found")
-            return redirect(
-                reverse("edit_organization", kwargs={"org_name": object.name})
+        user = User.objects.filter(email=email).first()
+
+        # The user exists
+        if user:
+            # Check if he's already a member of the organization
+            if Membership.objects.filter(user=user, organization=organization).exists():
+                messages.error(request, "Member already exist")
+                return redirect(
+                    reverse("edit_organization", kwargs={"org_name": organization.name})
+                )
+
+            # Create the membership for existing user
+            membership = Membership.objects.create(
+                user=user,
+                organization=organization,
+                role=form.cleaned_data["role"],
+                key=get_random_string(64).lower(),
             )
 
-        # Check if the member already exists
-        if Membership.objects.filter(user=user, organization=object).exists():
-            messages.error(request, "Member already exist")
-            return redirect(
-                reverse("edit_organization", kwargs={"org_name": object.name})
+            # Send invitation email
+            send_organization_invitation_email(membership, request)
+            messages.success(
+                request,
+                f"Invitation email has been sent to {email}",
             )
 
-        # Create the membership
-        Membership.objects.create(
-            user=user,
-            organization=object,
-            role=form.cleaned_data["role"],
-            key=get_random_string(64).lower(),
-        )
+        # The user doesn't exist
+        else:
+            # Check if there's already a pending invitation for this email
+            if Membership.objects.filter(
+                email=email, organization=organization, user__isnull=True
+            ).exists():
+                messages.error(
+                    request,
+                    "An invitation has already been sent to this email address",
+                )
+                return redirect(
+                    reverse("edit_organization", kwargs={"org_name": organization.name})
+                )
+
+            # Create the membership with email only
+            membership = Membership.objects.create(
+                user=None,
+                email=email,
+                organization=organization,
+                role=form.cleaned_data["role"],
+                key=get_random_string(64).lower(),
+            )
+
+            # Send signup invitation email
+            send_organization_signup_invitation_email(membership, request)
+            messages.success(
+                request,
+                f"Signup invitation email has been sent to {email}",
+            )
 
         return super().post(request, *args, **kwargs)
 
     def get_success_url(self):
-        object = self.get_object()
-        return reverse("edit_organization", kwargs={"org_name": object.name})
+        return reverse(
+            "edit_organization",
+            kwargs={"org_name": self.request.current_organization.name},
+        )
 
 
 class OrganizationMemberDeleteView(
@@ -165,15 +211,19 @@ class OrganizationMemberDeleteView(
 
     def dispatch(self, request, *args, **kwargs):
         member = self.get_object()
-        organization = member.organization
-        owners = organization.membership_set.filter(role=Membership.OWNER).all()
+        owners = request.current_organization.membership_set.filter(
+            role=Membership.OWNER
+        ).all()
 
         if len(owners) == 1 and owners[0] == member:
             messages.error(
                 request, "You cannot leave this organization as you are the only owner."
             )
             return redirect(
-                reverse("edit_organization", kwargs={"org_name": organization.name})
+                reverse(
+                    "edit_organization",
+                    kwargs={"org_name": request.current_organization.name},
+                )
             )
 
         return super().dispatch(request, *args, **kwargs)
@@ -181,7 +231,7 @@ class OrganizationMemberDeleteView(
     def get_object(self, queryset=None):
         return get_object_or_404(
             self.model,
-            organization__name=self.kwargs["org_name"],
+            organization=self.request.current_organization,
             id=self.kwargs["member_id"],
         )
 
@@ -193,7 +243,8 @@ class OrganizationMemberDeleteView(
             return reverse_lazy("list_organizations")
 
         return reverse_lazy(
-            "edit_organization", kwargs={"org_name": self.kwargs["org_name"]}
+            "edit_organization",
+            kwargs={"org_name": self.request.current_organization.name},
         )
 
 
@@ -201,12 +252,19 @@ class OrganizationInvitationView(LoginRequiredMixin, SingleObjectMixin, View):
     model = Membership
 
     def get(self, *args, **kwargs):
-        object = self.get_object()
-        object.key = None
-        object.date_joined = now()
-        object.save()
+        membership = self.get_object()
+
+        # Complete the invitation
+        membership.key = None
+        membership.date_joined = now()
+        membership.save()
 
         messages.success(self.request, "The invitation has been accepted")
+
+        # Change the current organization
+        self.request.session["current_organization_id"] = str(
+            membership.organization.id
+        )
 
         return redirect("list_organizations")
 
@@ -237,5 +295,5 @@ def change_organization(request):
         return JsonResponse({"status": "error"})
 
     # Save this organization in session
-    request.session["user_organization_id"] = str(organization.id)
+    request.session["current_organization_id"] = str(organization.id)
     return JsonResponse({"status": "ok"})

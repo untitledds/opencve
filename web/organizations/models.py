@@ -29,6 +29,17 @@ class Organization(BaseModel):
 
         return list(sorted(unique_vendors))
 
+    def get_members(self, active=True):
+        """Return members of the organization."""
+        queryset = User.objects.filter(
+            membership__organization=self,
+        )
+
+        if active:
+            queryset = queryset.filter(membership__date_joined__isnull=False)
+
+        return queryset.distinct().order_by("username")
+
     def __str__(self):
         return self.name
 
@@ -40,7 +51,8 @@ class Membership(models.Model):
         (OWNER, "owner"),
         (MEMBER, "member"),
     ]
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
+    email = models.EmailField(null=True, blank=True)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
     role = models.CharField(max_length=20, choices=ROLES, default=MEMBER)
     date_invited = models.DateTimeField(default=timezone.now, db_index=True)

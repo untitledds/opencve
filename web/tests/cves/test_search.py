@@ -1,7 +1,9 @@
 import pytest
 import pyparsing as pp
 from django.db.models import Q
-from django.http.response import Http404
+from django.contrib.auth.models import AnonymousUser
+from unittest.mock import Mock
+from datetime import datetime, timedelta, time
 
 from cves.search import (
     BadQueryException,
@@ -13,6 +15,11 @@ from cves.search import (
     ProductFilter,
     UserTagFilter,
     Search,
+    CweFilter,
+    ProjectFilter,
+    KevFilter,
+    EpssFilter,
+    DateFilter,
 )
 from users.models import UserTag
 
@@ -24,6 +31,7 @@ from users.models import UserTag
         ([">", ">=", "<"], ">, >= or <"),
         ([">", ">="], "> or >="),
         ([">"], "'>'"),
+        (["!=", "!:"], "!= or !:"),
     ],
 )
 def test_filter_allowed_operator_str(input, output):
@@ -64,6 +72,25 @@ def test_string_filter():
 
     filter = StringFilter("foo", "icontains", "bar", None)
     assert filter.execute() == Q(foo__icontains="bar")
+
+
+def test_string_filter_negation():
+    filter = StringFilter("foo", "not_exact", "bar", None)
+    assert filter.execute() == ~Q(foo__exact="bar")
+
+    filter = StringFilter("foo", "not_icontains", "bar", None)
+    assert filter.execute() == ~Q(foo__icontains="bar")
+
+
+def test_cwe_filter_bad_query():
+    filter = CweFilter("cwe", "lt", "CWE-123", None)
+    with pytest.raises(BadQueryException):
+        filter.execute()
+
+
+def test_cwe_filter():
+    filter = CweFilter("cwe", "icontains", "CWE-89", None)
+    assert filter.execute() == Q(weaknesses__icontains="CWE-89")
 
 
 def test_cve_filter_bad_query():
@@ -125,6 +152,11 @@ def test_vendor_filter():
     assert filter.execute() == Q(vendors__contains="microsoft")
 
 
+def test_vendor_filter_with_backslash():
+    filter = VendorFilter("foo", "icontains", "micro\\soft", None)
+    assert filter.execute() == Q(vendors__contains="micro\\\\soft")
+
+
 def test_product_filter_bad_query():
     filter = ProductFilter("foo", "lt", "android", None)
     with pytest.raises(BadQueryException):
@@ -134,6 +166,18 @@ def test_product_filter_bad_query():
 def test_product_filter():
     filter = ProductFilter("foo", "icontains", "android", None)
     assert filter.execute() == Q(vendors__icontains="$PRODUCT$android")
+
+
+def test_product_filter_with_backslash():
+    filter = ProductFilter("foo", "icontains", "android\\", None)
+    assert filter.execute() == Q(vendors__icontains="$PRODUCT$android\\\\")
+
+
+def test_usertag_filter_anonymous_user():
+    filter = UserTagFilter("userTag", "icontains", "foobar", AnonymousUser())
+    with pytest.raises(BadQueryException) as excinfo:
+        filter.execute()
+    assert "You must be logged in to use the 'userTag' filter." in str(excinfo.value)
 
 
 def test_usertag_filter_bad_query(create_user):
@@ -146,8 +190,9 @@ def test_usertag_filter_bad_query(create_user):
 def test_usertag_filter_tag_not_found(create_user):
     user = create_user()
     filter = UserTagFilter("foo", "icontains", "foobar", user)
-    with pytest.raises(Http404):
+    with pytest.raises(BadQueryException) as excinfo:
         filter.execute()
+    assert "The tag 'foobar' does not exist." in str(excinfo.value)
 
 
 def test_usertag_filter(create_user):
@@ -158,10 +203,183 @@ def test_usertag_filter(create_user):
     assert filter.execute() == Q(cve_tags__tags__contains="test", cve_tags__user=user)
 
 
+def test_project_filter_anonymous_user():
+    filter = ProjectFilter("project", "icontains", "foobar", AnonymousUser())
+    with pytest.raises(BadQueryException) as excinfo:
+        filter.execute()
+    assert "You must be logged in to use the 'project' filter." in str(excinfo.value)
+
+
+def test_project_filter_bad_query(create_user, create_organization, create_project):
+    user = create_user()
+    org = create_organization("orga", user)
+    project = create_project(
+        name="proj1", organization=org, vendors=["foo"], products=["bar"]
+    )
+    request = Mock()
+    request.user = user
+    request.current_organization = org
+
+    filter = ProjectFilter("project", "exact", project.name, user, request)
+    with pytest.raises(BadQueryException) as excinfo:
+        filter.execute()
+    assert "The operator '=' is not supported for the project field (use ':')" in str(
+        excinfo.value
+    )
+
+
+def test_project_filter_project_not_found(create_user, create_organization):
+    user = create_user()
+    org = create_organization("orga", user)
+    request = Mock()
+    request.user = user
+    request.current_organization = org
+
+    filter = ProjectFilter("project", "icontains", "doesnotexist", user, request)
+    with pytest.raises(BadQueryException) as excinfo:
+        filter.execute()
+    assert "The project 'doesnotexist' does not exist." in str(excinfo.value)
+
+
+def test_project_filter(create_user, create_organization, create_project):
+    user = create_user()
+    org = create_organization("orga", user)
+    vendors = ["foo", "bar"]
+    products = ["baz"]
+    project = create_project(
+        name="proj1", organization=org, vendors=vendors, products=products
+    )
+    request = Mock()
+    request.user = user
+    request.current_organization = org
+
+    filter = ProjectFilter("project", "icontains", project.name, user, request)
+    assert filter.execute() == Q(vendors__has_any_keys=vendors + products)
+
+
+def test_kev_filter_bad_query():
+    filter = KevFilter("kev", "gt", "true", None)
+    with pytest.raises(BadQueryException):
+        filter.execute()
+
+
+def test_kev_filter_invalid_value():
+    filter = KevFilter("kev", "icontains", "maybe", None)
+    with pytest.raises(BadQueryException) as excinfo:
+        filter.execute()
+    assert "kev only supports true or false as value." in str(excinfo.value)
+
+
+def test_kev_filter_true():
+    filter = KevFilter("kev", "icontains", "true", None)
+    assert filter.execute() == Q(metrics__kev__data__dateAdded__isnull=False)
+
+
+def test_kev_filter_false():
+    filter = KevFilter("kev", "icontains", "false", None)
+    assert filter.execute() == Q(metrics__kev__data__dateAdded__isnull=True)
+
+
+def test_kev_filter_case_insensitive():
+    filter = KevFilter("kev", "icontains", "TRUE", None)
+    assert filter.execute() == Q(metrics__kev__data__dateAdded__isnull=False)
+
+    filter = KevFilter("kev", "icontains", "False", None)
+    assert filter.execute() == Q(metrics__kev__data__dateAdded__isnull=True)
+
+
+def test_epss_filter_bad_query():
+    filter = EpssFilter("epss", "icontains", "0.5", None)
+    with pytest.raises(BadQueryException):
+        filter.execute()
+
+
+def test_epss_filter_invalid_value():
+    filter = EpssFilter("epss", "exact", "invalid", None)
+    with pytest.raises(BadQueryException) as excinfo:
+        filter.execute()
+    assert "The EPSS value 'invalid' is invalid (only numbers are accepted)." in str(
+        excinfo.value
+    )
+
+
+def test_epss_filter_out_of_range():
+    filter = EpssFilter("epss", "exact", "-1", None)
+    with pytest.raises(BadQueryException) as excinfo:
+        filter.execute()
+    assert "The EPSS value '-1' is invalid (must be between 0 and 100)." in str(
+        excinfo.value
+    )
+
+    filter = EpssFilter("epss", "exact", "101", None)
+    with pytest.raises(BadQueryException) as excinfo:
+        filter.execute()
+    assert "The EPSS value '101' is invalid (must be between 0 and 100)." in str(
+        excinfo.value
+    )
+
+
+def test_epss_filter_decimal_values():
+    filter = EpssFilter("epss", "exact", "0.5", None)
+    assert filter.execute() == Q(metrics__epss__data__score__exact=0.5)
+
+    filter = EpssFilter("epss", "gt", "0.8", None)
+    assert filter.execute() == Q(metrics__epss__data__score__gt=0.8)
+
+    filter = EpssFilter("epss", "gte", "0.9", None)
+    assert filter.execute() == Q(metrics__epss__data__score__gte=0.9)
+
+    filter = EpssFilter("epss", "lt", "0.3", None)
+    assert filter.execute() == Q(metrics__epss__data__score__lt=0.3)
+
+    filter = EpssFilter("epss", "lte", "0.7", None)
+    assert filter.execute() == Q(metrics__epss__data__score__lte=0.7)
+
+
+def test_epss_filter_percentage_conversion():
+    # Test that percentage values (>1) are converted to decimal
+    filter = EpssFilter("epss", "exact", "50", None)
+    assert filter.execute() == Q(metrics__epss__data__score__exact=0.5)
+
+    filter = EpssFilter("epss", "gt", "80", None)
+    assert filter.execute() == Q(metrics__epss__data__score__gt=0.8)
+
+    filter = EpssFilter("epss", "gte", "90", None)
+    assert filter.execute() == Q(metrics__epss__data__score__gte=0.9)
+
+    filter = EpssFilter("epss", "lt", "30", None)
+    assert filter.execute() == Q(metrics__epss__data__score__lt=0.3)
+
+    filter = EpssFilter("epss", "lte", "70", None)
+    assert filter.execute() == Q(metrics__epss__data__score__lte=0.7)
+
+
+def test_epss_filter_edge_cases():
+    # Test edge cases: 0, 1, and 100
+    filter = EpssFilter("epss", "exact", "0", None)
+    assert filter.execute() == Q(metrics__epss__data__score__exact=0.0)
+
+    filter = EpssFilter("epss", "exact", "1", None)
+    assert filter.execute() == Q(metrics__epss__data__score__exact=1.0)
+
+    filter = EpssFilter("epss", "exact", "100", None)
+    assert filter.execute() == Q(metrics__epss__data__score__exact=1.0)
+
+
+def test_usertag_filter_anonymous_user():
+    filter = UserTagFilter("userTag", "icontains", "foobar", AnonymousUser())
+    with pytest.raises(BadQueryException) as excinfo:
+        filter.execute()
+    assert "You must be logged in to use the 'userTag' filter." in str(excinfo.value)
+
+
 def test_search_init(create_user):
     user = create_user()
     q = "description:python"
-    search = Search(q, user)
+    request = Mock()
+    request.user = user
+
+    search = Search(q, request)
     assert search.q == q
     assert search.user == user
     assert search._query is None
@@ -219,6 +437,18 @@ def test_search_parse_jql():
     assert parsed_query == expected_parsed
 
 
+def test_search_parse_jql_with_special_chars_in_value():
+    search = Search("")
+    query = "product:some.product-1_beta"
+    parsed_query = search.parse_jql(query)
+    expected_parsed = [
+        "product",
+        ":",
+        "some.product-1_beta",
+    ]
+    assert parsed_query == expected_parsed
+
+
 def test_search_jql_to_json():
     search = Search("")
     parsed_query = [
@@ -239,3 +469,72 @@ def test_search_jql_to_json():
         ]
     }
     assert json_filter == expected_json
+
+
+def test_date_filter_bad_query():
+    filter = DateFilter("created", "icontains", "1d", None)
+    with pytest.raises(BadQueryException):
+        filter.execute()
+
+
+def test_date_filter_invalid_date():
+    filter = DateFilter("created", "gt", "invalid-date", None)
+    with pytest.raises(BadQueryException) as excinfo:
+        filter.execute()
+    assert "The date 'invalid-date' is invalid." in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "value, delta",
+    [
+        ("1d", timedelta(days=1)),
+        ("2w", timedelta(weeks=2)),
+        ("3m", timedelta(days=90)),
+        ("4y", timedelta(days=1460)),
+    ],
+)
+def test_date_filter_relative_dates(value, delta):
+    filter = DateFilter("created", "gt", value, None)
+    expected_date = datetime.now().date() - delta
+    expected_datetime = datetime.combine(expected_date, time.max)
+    assert filter.execute() == Q(created_at__gt=expected_datetime)
+
+
+def test_date_filter_absolute_date():
+    filter = DateFilter("updated", "lt", "2023-01-01", None)
+    expected_date = datetime.strptime("2023-01-01", "%Y-%m-%d").date()
+    expected_datetime = datetime.combine(expected_date, time.min)
+    assert filter.execute() == Q(updated_at__lt=expected_datetime)
+
+
+def test_date_filter_invalid_range():
+    filter = DateFilter("created", "gt", "2024-02-30", None)
+    with pytest.raises(BadQueryException) as excinfo:
+        filter.execute()
+    assert "out of range" in str(excinfo.value)
+
+
+def test_date_filter_exact_date():
+    filter = DateFilter("created", "exact", "2024-12-31", None)
+    expected_date = datetime.strptime("2024-12-31", "%Y-%m-%d").date()
+    assert filter.execute() == Q(created_at__date=expected_date)
+
+
+@pytest.mark.parametrize(
+    "operator, expected_time",
+    [
+        ("exact", None),  # Should return a date object
+        ("gt", time.max),
+        ("gte", time.min),
+        ("lt", time.min),
+        ("lte", time.max),
+    ],
+)
+def test_date_filter_get_datetime_bound(operator, expected_time):
+    date_value = datetime(2024, 1, 1).date()
+    result = DateFilter._get_datetime_bound(date_value, operator)
+
+    if expected_time is None:
+        assert result == date_value
+    else:
+        assert result == datetime.combine(date_value, expected_time)

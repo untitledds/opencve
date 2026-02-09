@@ -1,13 +1,11 @@
-django==5.1.4
-django[argon2]==5.1.4
-django[bcrypt]==5.1.4
+django[argon2,bcrypt]==5.2.8
 django-crispy-forms==2.3
 django-environ==0.11.2
 django-extensions==3.2.3
 django-debug-toolbar==4.4.6
 django-hijack==3.7.1
-django-allauth==65.3.1
-django-allauth[socialaccount,openid]==65.3.1
+django-allauth==65.9.0
+django-allauth[socialaccount,openid, mfa]==65.9.0
 django-prometheus==2.3.1
 django-auditlog==3.0.0
 djangorestframework==3.15.2
@@ -15,7 +13,6 @@ drf-nested-routers==0.94.1
 
 arrow==1.2.3
 crispy-bootstrap3==2022.1
-gitpython==3.1.32
 nested-lookup==0.2.25
 psycopg2-binary==2.9.10
 gunicorn==23.0.0

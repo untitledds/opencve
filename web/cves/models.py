@@ -118,6 +118,10 @@ class Cve(BaseModel):
         return self._redhat_json
 
     @property
+    def enrichment_json(self):
+        return self.kb_json.get("enrichment", {})
+
+    @property
     def cvssV2_0(self):
         return self.metrics.get("cvssV2_0", {}).get("data", {})
 
@@ -138,12 +142,35 @@ class Cve(BaseModel):
         return self.metrics.get("kev")
 
     @property
+    def epss(self):
+        return self.metrics.get("epss")
+
+    @property
     def ssvc(self):
         return self.metrics.get("ssvc")
 
     @property
     def references(self):
         return self.kb_json["opencve"]["references"]
+
+    @property
+    def advisories(self):
+        return self.kb_json.get("advisories", [])
+
+    def _get_text_from_mitre_list(self, field):
+        items = self.mitre_json.get("containers", {}).get("cna", {}).get(field, [])
+        for item in items:
+            if item.get("lang") == "en":
+                return item.get("value")
+        return None
+
+    @property
+    def solution(self):
+        return self._get_text_from_mitre_list("solutions")
+
+    @property
+    def workaround(self):
+        return self._get_text_from_mitre_list("workarounds")
 
     def __str__(self):
         return self.cve_id

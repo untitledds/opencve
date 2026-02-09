@@ -1,11 +1,14 @@
+import re
+from datetime import datetime, timedelta, time
+
 from django.conf import settings
 from django.db.models import Q
-from django.shortcuts import get_object_or_404
 import pyparsing as pp
 
 from cves.constants import PRODUCT_SEPARATOR
 from cves.models import Cve
 from users.models import UserTag
+from projects.models import Project
 
 
 class MaxFieldsExceededException(Exception):
@@ -23,6 +26,8 @@ OPERATOR_MAP = {
     "lte": "<=",
     "exact": "=",
     "icontains": ":",
+    "not_exact": "!=",
+    "not_icontains": "!:",
 }
 OPERATOR_MAP_BY_SYMBOL = {v: k for k, v in OPERATOR_MAP.items()}
 
@@ -30,11 +35,12 @@ OPERATOR_MAP_BY_SYMBOL = {v: k for k, v in OPERATOR_MAP.items()}
 class Filter:
     supported_operators = list(OPERATOR_MAP_BY_SYMBOL.keys())
 
-    def __init__(self, field, operator, value, user=None):
+    def __init__(self, field, operator, value, user=None, request=None):
         self.field = field
         self.operator = operator
         self.value = value
         self.user = user
+        self.request = request
 
     def run(self):
         raise NotImplementedError
@@ -59,10 +65,90 @@ class Filter:
 
 
 class StringFilter(Filter):
-    supported_operators = [":", "="]
+    supported_operators = [":", "=", "!=", "!:"]
 
     def run(self):
+        if self.operator.startswith("not"):
+            return ~Q(**{f"{self.field}__{self.operator[4:]}": self.value})
         return Q(**{f"{self.field}__{self.operator}": self.value})
+
+
+class DateFilter(Filter):
+    supported_operators = [">", ">=", "<", "<=", "="]
+
+    @staticmethod
+    def _get_datetime_bound(date_value, operator):
+        if operator == "exact":
+            return date_value
+
+        time_boundaries = {
+            "gt": time.max,
+            "gte": time.min,
+            "lt": time.min,
+            "lte": time.max,
+        }
+        return datetime.combine(date_value, time_boundaries.get(operator, time.min))
+
+    def run(self):
+        value = self.value.lower()
+        # Handle relative dates (e.g., 1d, 2w, 3m, 4y)
+        is_relative_date = re.match(r"^\d+[dwmy]$", value)
+        if is_relative_date:
+            num = int(value[:-1])
+            unit = value[-1]
+            if unit == "d":
+                delta = timedelta(days=num)
+            elif unit == "w":
+                delta = timedelta(weeks=num)
+            elif unit == "m":
+                # Approximate months as 30 days
+                delta = timedelta(days=num * 30)
+            elif unit == "y":
+                # Approximate years as 365 days
+                delta = timedelta(days=num * 365)
+            date_value = datetime.now().date() - delta
+
+            # For relative dates, invert <= and >= operators for intuitive semantics:
+            # created<=30d means "created in the last 30 days" (recent) -> created_at >= (now - 30d)
+            # created>=30d means "created 30+ days ago" (old) -> created_at <= (now - 30d)
+            # Keep < and > unchanged for consistency with tests
+            operator_map = {
+                "lte": "gte",  # <= becomes >= for relative dates
+                "gte": "lte",  # >= becomes <= for relative dates
+            }
+            # Only invert <= and >=, keep others unchanged
+            if self.operator in operator_map:
+                operator = operator_map[self.operator]
+            else:
+                operator = self.operator
+        else:
+            # Handle absolute dates (e.g., YYYY-MM-DD)
+            try:
+                date_value = datetime.strptime(value, "%Y-%m-%d").date()
+            except ValueError as e:
+                error_message = str(e).lower()
+                if "day is out of range" in error_message or "month" in error_message:
+                    raise BadQueryException(
+                        f"The date '{self.value}' is out of range (invalid day or month). Use a valid date in 'YYYY-MM-DD' format or a relative format (e.g., 1d, 2w, 3m)."
+                    )
+                raise BadQueryException(
+                    f"The date '{self.value}' is invalid. Use 'YYYY-MM-DD' format or a relative format (e.g., 1d, 2w, 3m)."
+                )
+            operator = self.operator
+
+        # Map field name to actual database field
+        field_mapping = {
+            "created": "created_at",
+            "updated": "updated_at",
+        }
+        db_field = field_mapping.get(self.field)
+
+        lookup = (
+            f"{db_field}__date" if operator == "exact" else f"{db_field}__{operator}"
+        )
+        filter_value = self._get_datetime_bound(date_value, operator)
+
+        return Q(**{lookup: filter_value})
 
 
 class CveFilter(Filter):
@@ -70,6 +156,13 @@ class CveFilter(Filter):
 
     def run(self):
         return Q(**{f"cve_id__{self.operator}": self.value})
+
+
+class CweFilter(Filter):
+    supported_operators = [":"]
+
+    def run(self):
+        return Q(**{f"weaknesses__{self.operator}": self.value})
 
 
 class CvssFilter(Filter):
@@ -95,11 +188,48 @@ class CvssFilter(Filter):
         return Q(**{f"metrics__{metric}__data__score__{self.operator}": value})
 
 
+class KevFilter(Filter):
+    supported_operators = [":"]
+
+    def run(self):
+        if self.value.lower() == "true":
+            return Q(metrics__kev__data__dateAdded__isnull=False)
+        elif self.value.lower() == "false":
+            return Q(metrics__kev__data__dateAdded__isnull=True)
+        else:
+            raise BadQueryException("kev only supports true or false as value.")
+
+
+class EpssFilter(Filter):
+    supported_operators = [">", ">=", "<", "<=", "="]
+
+    def run(self):
+        try:
+            value = float(self.value)
+        except ValueError:
+            raise BadQueryException(
+                f"The EPSS value '{self.value}' is invalid (only numbers are accepted)."
+            )
+
+            # Validate that the value is between 0 and 100 (for percentage) or 0 and 1 (for decimal)
+        if value < 0 or value > 100:
+            raise BadQueryException(
+                f"The EPSS value '{self.value}' is invalid (must be between 0 and 100)."
+            )
+
+        # Convert percentage to decimal if value is > 1
+        if value > 1:
+            value = value / 100
+
+        return Q(**{f"metrics__epss__data__score__{self.operator}": value})
+
+
 class VendorFilter(Filter):
     supported_operators = [":"]
 
     def run(self):
-        return Q(**{"vendors__contains": self.value})
+        safe_value = self.value.replace("\\", "\\\\")
+        return Q(**{"vendors__contains": safe_value})
 
 
 class ProductFilter(Filter):
@@ -112,21 +242,58 @@ class ProductFilter(Filter):
         #
         # We will be able to use `contains` instead of `icontains`:
         #   Q(**{"products__contains": self.value)
-        return Q(**{"vendors__icontains": f"{PRODUCT_SEPARATOR}{self.value}"})
+        safe_value = self.value.replace("\\", "\\\\")
+        return Q(**{"vendors__icontains": f"{PRODUCT_SEPARATOR}{safe_value}"})
 
 
 class UserTagFilter(Filter):
     supported_operators = [":"]
 
     def run(self):
-        tag = get_object_or_404(UserTag, name=self.value, user=self.user)
-        return Q(cve_tags__tags__contains=tag.name, cve_tags__user=self.user)
+        if not self.user.is_authenticated:
+            raise BadQueryException(
+                "You must be logged in to use the 'userTag' filter."
+            )
+
+        try:
+            UserTag.objects.get(name=self.value, user=self.user)
+        except UserTag.DoesNotExist:
+            raise BadQueryException(f"The tag '{self.value}' does not exist.")
+        return Q(cve_tags__tags__contains=self.value, cve_tags__user=self.user)
+
+
+class ProjectFilter(Filter):
+    supported_operators = [":"]
+
+    def run(self):
+        if not self.user.is_authenticated:
+            raise BadQueryException(
+                "You must be logged in to use the 'project' filter."
+            )
+
+        try:
+            project = Project.objects.get(
+                name=self.value, organization=self.request.current_organization
+            )
+        except Project.DoesNotExist:
+            raise BadQueryException(f"The project '{self.value}' does not exist.")
+
+        # Get vendors and products from the project subscriptions
+        vendors = project.subscriptions.get("vendors", [])
+        products = project.subscriptions.get("products", [])
+        all_keys = vendors + products
+
+        if not all_keys:
+            return Q(pk=None)
+
+        return Q(vendors__has_any_keys=all_keys)
 
 
 class Search:
-    def __init__(self, q, user=None):
+    def __init__(self, q, request=None):
         self.q = q
-        self.user = user
+        self.request = request
+        self.user = self.request.user if self.request else None
         self._query = None
         self.error = None
         self.fields_count = 0
@@ -205,6 +372,12 @@ class Search:
             "product": ProductFilter,
             "userTag": UserTagFilter,
             "cve": CveFilter,
+            "cwe": CweFilter,
+            "project": ProjectFilter,
+            "kev": KevFilter,
+            "epss": EpssFilter,
+            "created": DateFilter,
+            "updated": DateFilter,
         }
 
         for field, filter in filter_json.items():
@@ -217,7 +390,7 @@ class Search:
             self.increment_fields_count()
 
             q_objects &= filters_mapping[field](
-                field, filter["operator"], filter["value"], self.user
+                field, filter["operator"], filter["value"], self.user, self.request
             ).execute()
 
         return q_objects
@@ -228,13 +401,16 @@ class Search:
         """
         # Define grammar for parsing
         identifier = pp.Word(pp.alphanums + "_-")
-        operator = pp.oneOf(": = != > < >= <=")
-        value = pp.Word(pp.alphanums + "_-") | pp.quotedString.setParseAction(
-            pp.removeQuotes
+        operator = pp.oneOf(": = > < >= <= !: !=")
+        date_value = pp.Regex(r"\d{4}-\d{2}-\d{2}")
+        value = (
+            pp.Word(pp.alphanums + "_-.")
+            | pp.quotedString.setParseAction(pp.removeQuotes)
+            | date_value
         )
 
         # Allow standalone words
-        standalone = pp.Word(pp.alphanums + "_-")
+        standalone = pp.Word(pp.alphanums + "_-.")
         term = pp.Group(
             (identifier + operator + value)
             | standalone.setParseAction(self._single_fields)

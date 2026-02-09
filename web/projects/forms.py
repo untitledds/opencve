@@ -3,11 +3,18 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import HTML, Button, Div, Field, Layout, Submit
 from django import forms
 from django.conf import settings
+from django.db.models import Q
 
 from cves.constants import CVSS_SCORES
-from projects.models import Notification, Project
+from projects.models import Notification, Project, CveTracker
+from users.models import User
+from views.models import View as SavedView
 
-FORM_MAPPING = {"email": ["email"], "webhook": ["url", "headers"]}
+FORM_MAPPING = {
+    "email": ["email"],
+    "webhook": ["url", "headers"],
+    "slack": ["webhook_url"],
+}
 
 
 class ProjectForm(forms.ModelForm):
@@ -19,6 +26,12 @@ class ProjectForm(forms.ModelForm):
         self.request = kwargs.pop("request")
         super(ProjectForm, self).__init__(*args, **kwargs)
 
+        # Add help text to name field only when editing
+        if self.instance and not self.instance._state.adding:
+            self.fields["name"].help_text = (
+                "Renaming the project will break any external links to it, as the URL changes."
+            )
+
         self.helper = FormHelper()
         self.helper.layout = Layout(
             "name",
@@ -27,7 +40,7 @@ class ProjectForm(forms.ModelForm):
             FormActions(
                 HTML(
                     """
-                    <a href="{% url 'list_projects' org_name=request.user_organization.name %}" class="btn btn-default">
+                    <a href="{% url 'list_projects' org_name=request.current_organization.name %}" class="btn btn-default">
                     Cancel
                     </a>
                     """
@@ -44,14 +57,10 @@ class ProjectForm(forms.ModelForm):
         if name in ("add",):
             raise forms.ValidationError("This project is reserved.")
 
-        # In case of update, check if the user tried to change the name
-        if (bool(self.instance.name)) and (self.instance.name != name):
-            raise forms.ValidationError("Existing projects can't be renamed.")
-
         # Check if the project already exists for this user
         if self.instance.name != name:
             if Project.objects.filter(
-                organization=self.request.user_organization, name=name
+                organization=self.request.current_organization, name=name
             ).exists():
                 raise forms.ValidationError("This project already exists.")
 
@@ -103,6 +112,71 @@ class EmailForm(NotificationForm):
     email = forms.EmailField(required=True)
 
 
+class CveTrackerFilterForm(forms.Form):
+    """Form for filtering CVEs by assignee, status, and query"""
+
+    assignee = forms.ChoiceField(
+        choices=[],
+        required=False,
+        widget=forms.Select(attrs={"class": "form-control select2-assignee"}),
+    )
+
+    status = forms.ChoiceField(
+        choices=[("", "All statuses")] + CveTracker.STATUS_CHOICES,
+        required=False,
+        widget=forms.Select(attrs={"class": "form-control select2-status"}),
+    )
+
+    query = forms.CharField(
+        required=False,
+        widget=forms.TextInput(
+            attrs={
+                "class": "form-control",
+                "placeholder": "e.g., kev:true AND cvss31>=8",
+            }
+        ),
+    )
+
+    view = forms.ChoiceField(
+        choices=[],
+        required=False,
+        widget=forms.Select(attrs={"class": "form-control select2-view"}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        organization = kwargs.pop("organization", None)
+        user = kwargs.pop("user", None)
+        super().__init__(*args, **kwargs)
+
+        if organization:
+            # Only show organization members in the assignee dropdown
+            members = (
+                User.objects.filter(
+                    membership__organization=organization,
+                    membership__date_joined__isnull=False,
+                )
+                .distinct()
+                .order_by("username")
+            )
+            self.fields["assignee"].choices = [("", "All assignees")] + [
+                (user.username, user.username) for user in members
+            ]
+
+            # Show available views (public and user's private views)
+            views = SavedView.objects.filter(
+                Q(privacy="public", organization=organization)
+                | Q(
+                    privacy="private",
+                    user=user,
+                    organization=organization,
+                )
+            ).order_by("name")
+
+            self.fields["view"].choices = [("", "All views")] + [
+                (str(view.id), view.name) for view in views
+            ]
+
+
 class WebhookForm(NotificationForm):
     url = forms.URLField(assume_scheme="http" if settings.DEBUG else "https")
     headers = forms.JSONField(required=False, initial={})
@@ -124,3 +198,12 @@ class WebhookForm(NotificationForm):
                 )
 
         return headers
+
+
+class SlackForm(NotificationForm):
+    webhook_url = forms.URLField(
+        required=True,
+        assume_scheme="https",
+        label="Slack Webhook URL",
+        help_text="Enter your Slack incoming webhook URL",
+    )

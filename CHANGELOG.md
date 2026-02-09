@@ -1,5 +1,81 @@
 # Changelog
 
+## 2.3.0 - 2026-01-13
+### Added
+- Add CVE tracking with assignee and status management
+- Support filtering project CVEs via views and advanced queries
+- Add created and updated date parameters to CVE search
+- Support negative operators in CVE title and description search
+- Display advisories on CVE details page
+- Display solution and workaround information in CVE details
+- Display most recent available CVSS score in CVE details
+- Support quick vendor and product subscription from CVE view
+- Add Slack notifications support
+- Send email upon organization invitation
+- Add two-factor authentication (2FA) option for users
+- Add AI-powered report summarization using user-provided LLM
+- Add DAG to summarize reports with AI
+
+### Fixed
+- Ignore invalid CVEs during import
+- Use correct parameter name to identify the active project
+- Allow dot character in CVE search field
+
+### Changed
+- Redirect unauthenticated users to CVEs listing instead of login page
+- Improve visibility of user tags on CVE page
+- Add retry logic and configuration for LLM HTTP calls and report summarization DAG
+- Allow organization and project renaming
+- Upgrade Django from 5.2.1 to 5.2.8
+
+## 2.2.0 - 2025-08-14
+### Added
+- Add customizable dashboards with draggable widgets
+- Add organization views
+- Add KEV and EPSS metrics in CVE details
+- Display OpenCVE Enrichment data in CVE details
+- Add query builder for advanced search
+- Support new keywords (project, cwe) in advanced search
+- Create an example view during user onboarding
+- Add pagination in reports listing
+- Support ignored commits in Knowledge Base parsing
+- Add datetime tag for CVE publication date
+- Update CVSS visualization
+- Autofocus login and registration form
+- Switch organization automatically based on visited URL
+- Skip DAG tasks conditionally using ShortCircuitOperator
+- Docker: remove named containers to allow multiple installs
+- Install script: do not overwrite config files by default, add -f option
+- Track changes on Dashboard and View models
+
+### Fixed
+- Ignore invalid or non-matching CVE files in scheduler
+- Escape vendor and product names with special characters to avoid 404 errors
+- Align modal title and close button
+- Hide inactive projects from menu
+- Fallback to basic search mode when tag param is used
+- Prevent URL issues by using view ID instead of name
+- Show error message instead of 404 when user tag does not exist
+- Handle userTag filter for anonymous users
+- Validate uniqueness of view name based on privacy and organization
+- Multiple members can access their own dashboards in the same organization
+- Provide default configuration parameters for dashboard widgets
+- Rename default dashboard name
+- Fix button alignment when project is inactive
+- Do not convert empty date
+- Add Date header to sent messages
+- Formatting fix in install.sh help message
+- Update copyright year dynamically
+
+### Changed
+- Upgrade Django to 5.2.1
+- Replace JPEG image with PNG version in README
+- Adjust logging level for expected widget config errors
+- Optimize mixins to reduce DB calls and improve readability
+- Rename user_organization into current_organization
+- Update README with KEV and EPSS mentions
+- General dependency updates (git, Django, scheduler/web packages)
+
 ## 2.1.0 - 2025-01-23
 ### Added
 - Add CVEs advanced search feature

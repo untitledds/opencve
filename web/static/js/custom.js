@@ -72,6 +72,22 @@ function getContrastedColor(str){
     setTagsColor();
     $('.select2').select2({allowClear: true});
     $('#select2-tags').val($('.select2').data("values")).trigger('change');
+    $('.select2-assignee').select2({
+      allowClear: true,
+      placeholder: 'All assignees',
+    });
+    $('.select2-status').select2({
+      allowClear: true,
+      placeholder: 'All statuses',
+    });
+    $('.select2-view').select2({
+      allowClear: true,
+      placeholder: 'Select a view',
+    });
+  // Handle clear event to ensure it works correctly with empty value
+  $('#id_assignee').on('select2:clear', function() {
+      $(this).val('').trigger('change');
+  });
 
     // Input used to list the user organizations
     $('.select2-organizations').select2({allowClear: false, minimumResultsForSearch: Infinity});
@@ -88,6 +104,13 @@ function getContrastedColor(str){
                 }
             }
         });
+    });
+
+    // Fill the query input before opening the Save view modal in CVEs page
+    $("#save-view-button").click(function(e) {
+      const filter = $("#id_q").val();
+      $("#id_query").val(filter);
+      $('#modal-save-view').modal('show');
     });
 
     // Subscriptions handler
@@ -486,4 +509,1061 @@ function getContrastedColor(str){
     });
   }
 
-  });
+
+  function sanitizeText(text) {
+      const div = document.createElement('div');
+      div.appendChild(document.createTextNode(text));
+      return div.innerHTML;
+  }
+
+  function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+  }
+
+
+  /*
+   Homepage Grid
+  */
+  const gridStackElement = document.querySelector('.grid-stack');
+
+  if (gridStackElement) {
+    const grid = GridStack.init({
+      handle: '.drag-widget',
+      float: false,
+      animate: true,
+      cellHeight: 100,
+    });
+
+    $(".add-widget").on("click", function () {
+      let widgetType = $(this).data("type");
+      const content = '<p class="center"><button class="btn btn-default center configure-widget">Configure the widget</button></p>';
+
+      // Find the lowest position
+      let maxY = 0;
+      grid.engine.nodes.forEach(node => {
+        maxY = Math.max(maxY, node.y + node.h);
+      });
+
+      const widget = {
+          x: 0,
+          y: maxY,
+          w: 6,
+          h: 5,
+          id: generateUUID(),
+          content: content,
+        };
+
+        const element = document.createElement('div');
+        element.dataset.type = widgetType;
+        element.innerHTML = `
+          <div class="grid-stack-item-content box box-primary">
+            <div class="box-header">
+                <div class="box-title"><i class="fa fa-arrows drag-widget"></i> <span class="box-title-text">New Widget</span></div>
+                <div class="box-tools pull-right">
+                    <a class="btn btn-box-tool configure-widget"><i class="fa fa-edit"></i></a>
+                    <a class="btn btn-box-tool delete-btn"><i class="fa fa-remove"></i></a>
+                </div>
+            </div>
+            <div class="box-body">${content}</div>
+          </div>
+        `;
+
+        const gridItem = grid.makeWidget(element, widget);
+
+        // Add delete functionality
+        element.querySelector('.delete-btn').addEventListener('click', () => {
+          grid.removeWidget(element);
+        });
+
+        $('#modal-add-widget').modal('hide');
+
+        // Scroll to the new element
+        $('html, body').animate({
+            scrollTop: $(element).offset().top - 100
+        }, 600);
+    });
+
+    $("#save-dashboard").on("click", function () {
+        const widgets = [];
+        const gridItems = grid.engine.nodes;
+
+        gridItems.forEach(node => {
+          if (node.el && node.el.dataset.config != undefined) {
+
+            widgets.push({
+              x: node.x,
+              y: node.y,
+              w: node.w,
+              h: node.h,
+              id: node.id,
+              type: node.el.dataset.type,
+              config: JSON.parse(node.el.dataset.config),
+              title: node.el.dataset.title,
+            });
+          }
+        });
+
+        $.ajax({
+            url: SAVE_DASHBOARD_URL,
+            type: "POST",
+            contentType: "application/json",
+            data: JSON.stringify(widgets),
+            success: function (response) {
+                var $button = $('#save-dashboard');
+                var originalText = $button.html();
+
+                // Change button text and style
+                $button.html('<i class="fa fa-check"></i> Saved!')
+                      .removeClass('btn-default')
+                      .addClass('btn-primary');
+
+                // Reset button after 2 seconds
+                setTimeout(function() {
+                    $button.html(originalText)
+                          .removeClass('btn-primary')
+                          .addClass('btn-default');
+                }, 2000);
+            },
+            error: function (error) {
+                console.error("Error saving dashboard", error);
+                var $button = $('#save-dashboard');
+                var originalText = $button.html();
+
+                // Show error state
+                $button.html('<i class="fa fa-times"></i> Error')
+                      .removeClass('btn-default')
+                      .addClass('btn-danger');
+
+                // Reset button after 2 seconds
+                setTimeout(function() {
+                    $button.html(originalText)
+                          .removeClass('btn-danger')
+                          .addClass('btn-default');
+                }, 2000);
+            }
+        });
+    });
+
+    function loadWidgetData(element) {
+      var widgetElement = $(element);
+      var widgetId = widgetElement.attr("gs-id");
+
+      $.get(LOAD_WIDGET_DATA_URL.replace("$WIDGET_ID$", widgetId), function(data) {
+          if (data.html) {
+              widgetElement.find(".widget-content").html(data.html);
+          } else {
+              widgetElement.find(".widget-content").html("<p>An error occurred while loading the widget.</p>");
+          }
+          widgetElement.find(".widget-loader").hide();
+      }).fail(function() {
+          widgetElement.find(".widget-content").html("<p>An error occurred while loading the widget.</p>");
+          widgetElement.find(".widget-loader").hide();
+      });
+    }
+
+    function loadDashboard() {
+        $.getJSON(LOAD_DASHBOARD_URL, function (data) {
+            if (!data.widgets) return;
+            const widgets = data.widgets;
+
+            widgets.forEach(widget => {
+              const element = document.createElement('div');
+              element.dataset.config = JSON.stringify(widget.config);
+              element.dataset.type = widget.type;
+              element.dataset.title = widget.title;
+
+              element.innerHTML = `
+                <div class="grid-stack-item-content box box-primary">
+                  <div class="box-header">
+                      <div class="box-title"><i class="fa fa-arrows drag-widget" style="font-size: 0.80em;"></i> <span class="box-title-text">${sanitizeText(widget.title)}</span></div>
+                      <div class="box-tools pull-right">
+                          <a class="btn btn-box-tool configure-widget"><i class="fa fa-edit"></i></a>
+                          <a class="btn btn-box-tool delete-btn"><i class="fa fa-remove"></i></a>
+                      </div>
+                  </div>
+                  <div class="box-body">
+                    <div class="widget-content"></div>
+                    <div class="widget-loader center">
+                      <i class="fa fa-spinner fa-spin"></i> Loading...
+                    </div>
+                  </div>
+                </div>
+              `;
+
+              grid.makeWidget(element, widget);
+
+              element.querySelector('.delete-btn').addEventListener('click', () => {
+                grid.removeWidget(element);
+              });
+
+              grid.save(true);
+              loadWidgetData(element);
+            });
+        });
+    }
+    loadDashboard();
+
+    $(".grid-stack").on("click", ".configure-widget", function () {
+      let widgetElement = $(this).closest(".grid-stack-item");
+      let widgetConfig = JSON.parse(widgetElement.attr("data-config") || "{}");
+      let widgetType = widgetElement.attr("data-type");
+      let widgetTitle = widgetElement.attr("data-title");
+
+      $.post(LOAD_WIDGET_CONFIG_URL.replace("$WIDGET_TYPE$", widgetType), JSON.stringify({title: widgetTitle, config: widgetConfig}), function (data) {
+        let originalContent = widgetElement.find(".box-body").html();
+
+        // Replace the content with the new one
+        widgetElement.find(".box-body").html(`
+            <div class="widget-config-container">
+                ${data.html}
+                <div class="config-buttons text-right mt-2">
+                    <button class="btn btn-secondary btn-sm cancel-config">Cancel</button>
+                    <button class="btn btn-primary btn-sm save-config">Save</button>
+                </div>
+            </div>
+        `);
+
+        // Cancel button
+        widgetElement.find(".cancel-config").on("click", function () {
+          widgetElement.find(".box-body").html(originalContent);
+        });
+
+        // Confirm button
+        widgetElement.find(".save-config").on("click", function () {
+          let formData = widgetElement.find("form").serializeArray();
+          let config = {};
+          formData.forEach(item => config[item.name] = item.value);
+
+          widgetElement.attr("data-title", config.title);
+          widgetElement.find(".box-title-text").text(config.title);
+          delete config.title;
+
+          // Render the type with the config
+          var widgetId = widgetElement.attr("gs-id");
+          $.post(RENDER_WIDGET_DATA_URL.replace("$WIDGET_TYPE$", widgetType), {id: widgetId, config: JSON.stringify(config)}, function (renderData) {
+            widgetElement.find(".box-body").html(renderData.html);
+            widgetElement.attr("data-config", JSON.stringify(renderData.config));
+          });
+
+        });
+
+      });
+    });
+  }
+
+  /*
+   CVE List Page - Dynamic Query Builder
+  */
+  if ($('#dynamic-query-builder').length) {
+    const $modal = $('#queryBuilderModal');
+    const $builder = $('#dynamic-query-builder');
+    const $queryOutput = $('#id_q');
+    const $modalQueryDisplay = $('#modal-query-display');
+    const queryDisplayPlaceholder = "Query will appear here as you build it...";
+
+    function updateQuery(params) {
+        let queryParts = [];
+
+        const addQueryPart = (field, value) => {
+            if (value && value.trim()) {
+                const trimmedValue = value.trim();
+
+                if (field === 'cve') {
+                    queryParts.push(`cve:${trimmedValue.toUpperCase()}`);
+                } else if (['description', 'title', 'cwe', 'vendor', 'product', 'userTag', 'project'].includes(field)) {
+                    const requiresQuotes = /[\s\:\?\*]/.test(trimmedValue);
+                    const formattedValue = requiresQuotes ? `\"${trimmedValue}\"` : trimmedValue;
+                    queryParts.push(`${field}:${formattedValue}`);
+                }
+            }
+        };
+
+        // 1. Process static, CWE & repeatable fields
+        ['cve', 'description', 'title', 'cwe', 'vendor', 'product', 'userTag', 'project'].forEach(fieldType => {
+            $builder.find(`.query-builder-input[data-field="${fieldType}"]`).each(function() {
+                addQueryPart(fieldType, $(this).val());
+            });
+        });
+
+        // 2. Process CVSS
+        const cvssVersion = $builder.find('.cvss-version').val();
+        const cvssOperator = $builder.find('.cvss-operator').val();
+        const cvssScoreRaw = $builder.find('.cvss-score').val().trim();
+        if (cvssVersion && cvssOperator && cvssScoreRaw !== '' && !isNaN(parseInt(cvssScoreRaw))) {
+            let score = parseInt(cvssScoreRaw);
+            if (score >= 0 && score <= 10) {
+                queryParts.push(`${cvssVersion}${cvssOperator}${score}`);
+            }
+        }
+
+        // 3. Process KEV
+        const kevChecked = $builder.find('#query-builder-kev').is(':checked');
+        if (kevChecked) {
+            queryParts.push('kev:true');
+        }
+
+        // 4. Process EPSS
+        const epssOperator = $builder.find('.epss-operator').val();
+        const epssScoreRaw = $builder.find('.epss-score').val().trim();
+        if (epssOperator && epssScoreRaw !== '' && !isNaN(parseInt(epssScoreRaw))) {
+            let score = parseInt(epssScoreRaw);
+            if (score >= 0 && score <= 100) {
+                queryParts.push(`epss${epssOperator}${score}`);
+            }
+        }
+
+        // 5. Process Date Filter
+        const dateField = $builder.find('.date-field').val();
+        const dateOperator = $builder.find('.date-operator').val();
+        const dateValue = $builder.find('.date-value').val().trim();
+        if (dateField && dateOperator && dateValue) {
+            queryParts.push(`${dateField}${dateOperator}${dateValue}`);
+        }
+
+        // Log the final query
+        const finalQuery = queryParts.join(' AND ');
+        if (finalQuery.trim() === '') {
+            $modalQueryDisplay.text(queryDisplayPlaceholder).addClass('text-muted');
+        } else {
+            $modalQueryDisplay.text(finalQuery).removeClass('text-muted');
+        }
+
+        // Enable/disable the Apply button
+        const $applyButton = $modal.find('#apply-modal-query');
+        if (finalQuery.trim() === '') {
+            $applyButton.prop('disabled', true);
+        } else {
+            $applyButton.prop('disabled', false);
+        }
+    }
+
+    // Event listener for regular inputs (text, number, non-select2 selects)
+    $modal.on('input change', '.query-builder-input:not(.select2-hidden-accessible)', updateQuery);
+
+    // Specific listener for date fields to ensure updates
+    $modal.on('input change', '.date-field, .date-operator, .date-value', updateQuery);
+
+    // Initialize Select2 for the initial User Tag select if present
+    if ($('.select2-tags-builder').length) {
+        const $initialSelect = $('.select2-tags-builder');
+        $initialSelect.select2({
+            allowClear: true,
+            width: '100%',
+            placeholder: "Select a tag...",
+            dropdownParent: $('#queryBuilderModal')
+        });
+
+        // Attach Select2 specific listeners
+        $initialSelect.on('select2:select select2:unselect', function (e) {
+           updateQuery({ fieldType: 'userTag', value: $(this).val() });
+        });
+    }
+
+    // Initialize Select2 for the initial Project select if present
+    if ($('.select2-project-builder').length) {
+      const $initialSelect = $('.select2-project-builder');
+      $initialSelect.select2({
+          allowClear: true,
+          width: '100%',
+          placeholder: "Select a project...",
+          dropdownParent: $('#queryBuilderModal')
+      });
+
+      // Attach Select2 specific listeners
+      $initialSelect.on('select2:select select2:unselect', function (e) {
+         updateQuery({ fieldType: 'project', value: $(this).val() });
+      });
+    }
+
+    // Add filter buttons
+    let filterCounts = { vendor: 1, product: 1 };
+    $modal.on('click', '.add-filter', function() {
+        const targetSelector = $(this).data('target');
+        const fieldType = $(this).data('field');
+
+        if (!filterCounts.hasOwnProperty(fieldType)) {
+            console.warn("Attempted to add filter for unsupported type:", fieldType);
+            return;
+        }
+
+        filterCounts[fieldType]++;
+
+        const newFilterId = `query-builder-${fieldType}-${filterCounts[fieldType]}`;
+        const placeholder = (fieldType === 'vendor' ? 'e.g., apache' : 'e.g., log4j');
+        const newFilterHtml = `            <div class="form-group row filter-group mt-2" style="margin-top: 5px;">
+                <div class="col-sm-2"></div>
+                <div class="col-sm-9">
+                    <input type="text" class="form-control query-builder-input" id="${newFilterId}" data-field="${fieldType}" placeholder="${placeholder}">
+                </div>
+                <div class="col-sm-1">
+                    <button type="button" class="btn btn-danger btn-sm remove-filter" title="Remove this filter"><i class="fa fa-minus"></i></button>
+                </div>
+            </div>`;
+
+        const $newElement = $(newFilterHtml);
+        $modal.find(targetSelector).append($newElement);
+    });
+
+    // Remove filter buttons
+    $modal.on('click', '.remove-filter', function() {
+        $(this).closest('.filter-group').remove();
+        updateQuery();
+    });
+
+    // Reset button
+    $modal.on('click', '#reset-query-builder', function() {
+        $builder.find('.query-builder-input[type="text"], .query-builder-input[type="number"]').val('');
+        $builder.find('select.query-builder-input').each(function() {
+             const defaultSelected = $(this).find('option[selected]').val();
+             if (defaultSelected) {
+                 $(this).val(defaultSelected);
+             } else {
+                 $(this).prop('selectedIndex', 0);
+             }
+        });
+
+        // Reset KEV checkbox
+        $builder.find('#query-builder-kev').prop('checked', false);
+
+        // Reset EPSS fields
+        $builder.find('.epss-operator').prop('selectedIndex', 0);
+        $builder.find('.epss-score').val('');
+
+        // Reset Date fields
+        $builder.find('.date-field').val('created');
+        $builder.find('.date-operator').val('>=');
+        $builder.find('.date-value').val('');
+
+        // Remove added filters, keeping the first one
+         ['vendor', 'product'].forEach(fieldType => {
+             const filterContainer = $builder.find(`#${fieldType}-filters`);
+             if (filterContainer.length) {
+                filterContainer.find('.filter-group:not(:first)').remove();
+                filterContainer.find('.filter-group:first .query-builder-input').val('');
+             }
+         });
+         // Reset the UserTag filter
+         const userTagSelect = $builder.find('select.select2-tags-builder[data-field="userTag"]');
+         if (userTagSelect.length) {
+            userTagSelect.val(null).trigger('change');
+         }
+         // Reset the Project filter
+         const projectSelect = $builder.find('select.select2-project-builder[data-field="project"]');
+         if (projectSelect.length) {
+            projectSelect.val(null).trigger('change');
+         }
+
+        // Reset the modal display field
+        $modalQueryDisplay.text(queryDisplayPlaceholder).addClass('text-muted');
+        updateQuery();
+    });
+
+    // Reset builder fields every time the modal is shown
+    $modal.on('show.bs.modal', function () {
+        $modal.find('#reset-query-builder').trigger('click');
+        filterCounts = { vendor: 1, product: 1 };
+    });
+
+    // Apply Query button
+    $modal.on('click', '#apply-modal-query', function() {
+        const query = $modalQueryDisplay.text();
+        if (query && query.trim() !== '' && query !== queryDisplayPlaceholder) {
+            const searchUrl = `${CVES_URL}?q=${encodeURIComponent(query)}`;
+            window.location.href = searchUrl;
+        }
+    });
+  }
+
+  /*
+   CVE Tracking
+  */
+  (function() {
+    // Constants
+    const EDIT_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+
+    const STATUS_ORDER = [
+        'to_evaluate',
+        'pending_review',
+        'analysis_in_progress',
+        'remediation_in_progress',
+        'evaluated',
+        'resolved',
+        'not_applicable',
+        'risk_accepted'
+    ];
+
+    const STATUS_BADGE_CLASSES = {
+        'to_evaluate': 'badge-secondary',
+        'pending_review': 'badge-secondary',
+        'analysis_in_progress': 'badge-info',
+        'remediation_in_progress': 'badge-info',
+        'evaluated': 'badge-success',
+        'resolved': 'badge-success',
+        'not_applicable': 'badge-warning',
+        'risk_accepted': 'badge-warning'
+    };
+
+    let currentTippy = null;
+
+    // Helper functions
+    function getStatusBadgeClass(statusKey) {
+        return STATUS_BADGE_CLASSES[statusKey] || 'badge-secondary';
+    }
+
+    function getEditIconSVG() {
+        return EDIT_ICON_SVG;
+    }
+
+    function sortStatuses(statuses) {
+        return statuses.slice().sort(function(a, b) {
+            const indexA = STATUS_ORDER.indexOf(a.key);
+            const indexB = STATUS_ORDER.indexOf(b.key);
+            if (indexA === -1) return 1;
+            if (indexB === -1) return -1;
+            return indexA - indexB;
+        });
+    }
+
+    function getUrl(action, projectName, orgName) {
+        const endpoint = action === 'assign' ? 'assign-cve-user' : 'update-cve-status';
+        return `/org/${orgName}/projects/${projectName}/${endpoint}`;
+    }
+
+    function getBadgeSelector(cveId, projectName, badgeType) {
+        if (projectName) {
+            return `[data-cve-id="${cveId}"][data-project-name="${projectName}"].editable-${badgeType}`;
+        }
+        return `[data-cve-id="${cveId}"].editable-${badgeType}`;
+    }
+
+    function getAnimationTarget(cveId, projectName) {
+        const badge = document.querySelector(`[data-cve-id="${cveId}"]${projectName ? `[data-project-name="${projectName}"]` : ''}`);
+        if (!badge) return null;
+
+        // Try to find parent row or project-assignment-item
+        return badge.closest('tr') || badge.closest('.project-assignment-item');
+    }
+
+    // Menu creation functions
+    function createAssigneeMenu(cveId, currentAssigneeId, projectName, orgName) {
+        const members = window.cveTrackingData.organizationMembers;
+        let menuHtml = '<div class="floating-menu">';
+        menuHtml += '<div class="floating-menu-title" style="text-align: left;">Select an assignee</div>';
+
+        const isUnassigned = !currentAssigneeId || currentAssigneeId === '';
+        const baseAttrs = `data-cve-id="${cveId}" data-assignee-id=""`;
+        const attrs = projectName ? `${baseAttrs} data-project-name="${projectName}" data-org-name="${orgName || ''}"` : baseAttrs;
+
+        menuHtml += `<button class="floating-menu-item unassign ${isUnassigned ? 'selected' : ''}" ${attrs}>
+                        <i class="fa fa-times"></i> Unassigned
+                     </button>`;
+
+        members.forEach(function(member) {
+            const isSelected = member.id === currentAssigneeId;
+            const baseAttrs = `data-cve-id="${cveId}" data-assignee-id="${member.id}"`;
+            const attrs = projectName ? `${baseAttrs} data-project-name="${projectName}" data-org-name="${orgName || ''}"` : baseAttrs;
+
+            menuHtml += `<button class="floating-menu-item ${isSelected ? 'selected' : ''}" ${attrs}>
+                            <i class="fa fa-user"></i> ${member.username}
+                         </button>`;
+        });
+
+        menuHtml += '</div>';
+        return menuHtml;
+    }
+
+    function createStatusMenu(cveId, currentStatus, projectName, orgName) {
+        const statuses = window.cveTrackingData.statusChoices;
+        const sortedStatuses = sortStatuses(statuses);
+
+        let menuHtml = '<div class="floating-menu">';
+        menuHtml += '<div class="floating-menu-title" style="text-align: left;">Select a status</div>';
+
+        const isNoStatus = !currentStatus || currentStatus === '';
+        const baseAttrs = `data-cve-id="${cveId}" data-status=""`;
+        const attrs = projectName ? `${baseAttrs} data-project-name="${projectName}" data-org-name="${orgName || ''}"` : baseAttrs;
+
+        menuHtml += `<button class="floating-menu-item ${isNoStatus ? 'selected' : ''}" ${attrs}>
+                        <i class="fa fa-times"></i> No status
+                     </button>`;
+
+        sortedStatuses.forEach(function(status) {
+            const isSelected = status.key === currentStatus;
+            const badgeClass = getStatusBadgeClass(status.key);
+            const baseAttrs = `data-cve-id="${cveId}" data-status="${status.key}"`;
+            const attrs = projectName ? `${baseAttrs} data-project-name="${projectName}" data-org-name="${orgName || ''}"` : baseAttrs;
+
+            menuHtml += `<button class="floating-menu-item ${isSelected ? 'selected' : ''}" ${attrs}>
+                            <span class="badge ${badgeClass}" style="margin-right: 8px; font-size: 10px;">${status.label}</span>
+                         </button>`;
+        });
+
+        menuHtml += '</div>';
+        return menuHtml;
+    }
+
+    // Badge update functions
+    function updateAssigneeBadge(cveId, assigneeId, assigneeUsername, projectName, orgName) {
+        const badge = document.querySelector(getBadgeSelector(cveId, projectName, 'assignee'));
+        if (!badge) return;
+
+        badge.setAttribute('data-current-assignee', assigneeId || '');
+        const editIcon = getEditIconSVG();
+
+        if (assigneeId && assigneeUsername) {
+            badge.innerHTML = assigneeUsername + '<span class="edit-icon">' + editIcon + '</span>';
+            badge.className = 'editable-assignee badge badge-info';
+        } else {
+            badge.innerHTML = 'Unassigned<span class="edit-icon">' + editIcon + '</span>';
+            badge.className = 'editable-assignee badge badge-secondary';
+        }
+
+        if (badge._tippy) {
+            badge._tippy.setContent(createAssigneeMenu(cveId, assigneeId, projectName, orgName));
+        }
+    }
+
+    function updateStatusBadge(cveId, statusKey, statusLabel, projectName, orgName) {
+        const badge = document.querySelector(getBadgeSelector(cveId, projectName, 'status'));
+        if (!badge) return;
+
+        badge.setAttribute('data-current-status', statusKey || '');
+        const editIcon = getEditIconSVG();
+
+        if (statusKey && statusLabel) {
+            badge.innerHTML = statusLabel + '<span class="edit-icon">' + editIcon + '</span>';
+            const badgeClass = getStatusBadgeClass(statusKey);
+            badge.className = `editable-status badge ${badgeClass}`;
+        } else {
+            badge.innerHTML = 'No status<span class="edit-icon">' + editIcon + '</span>';
+            badge.className = 'editable-status badge badge-secondary';
+        }
+
+        if (badge._tippy) {
+            badge._tippy.setContent(createStatusMenu(cveId, statusKey, projectName, orgName));
+        }
+    }
+
+    function showSuccessAnimation(cveId, projectName) {
+        const target = getAnimationTarget(cveId, projectName);
+        if (target) {
+            target.style.backgroundColor = '#dafbe1';
+            setTimeout(() => {
+                target.style.backgroundColor = '';
+            }, 1500);
+        }
+    }
+
+    // API functions
+    function assignUser(cveId, assigneeId, projectName, orgName) {
+        if (currentTippy) {
+            currentTippy.hide();
+        }
+
+        const data = {
+            cve_id: cveId,
+            assignee_id: assigneeId || null
+        };
+
+        const url = getUrl('assign', projectName, orgName);
+
+        fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrftoken
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                updateAssigneeBadge(cveId, assigneeId, data.assignee_username, projectName, orgName);
+                showSuccessAnimation(cveId, projectName);
+            } else {
+                console.error('Error: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+        });
+    }
+
+    function updateStatus(cveId, status, projectName, orgName) {
+        if (currentTippy) {
+            currentTippy.hide();
+        }
+
+        const data = {
+            cve_id: cveId,
+            status: status
+        };
+
+        const url = getUrl('update', projectName, orgName);
+
+        fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrftoken
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                updateStatusBadge(cveId, status, data.status, projectName, orgName);
+                showSuccessAnimation(cveId, projectName);
+            } else {
+                console.error('Error: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('An error occurred while updating the status:', error);
+        });
+    }
+
+    // Initialize badges
+    if (window.cveTrackingData) {
+        // Initialize assignee badges
+        document.querySelectorAll('.editable-assignee').forEach(function(badge) {
+            const cveId = badge.getAttribute('data-cve-id');
+            const projectName = badge.getAttribute('data-project-name');
+            const orgName = badge.getAttribute('data-org-name');
+            const currentAssigneeId = badge.getAttribute('data-current-assignee');
+
+            tippy(badge, {
+                content: createAssigneeMenu(cveId, currentAssigneeId, projectName, orgName),
+                allowHTML: true,
+                interactive: true,
+                trigger: 'click',
+                placement: 'bottom-start',
+                animation: 'shift-away',
+                theme: 'light-border',
+                maxWidth: 250,
+                onShow(instance) {
+                    if (currentTippy && currentTippy !== instance) {
+                        currentTippy.hide();
+                    }
+                    currentTippy = instance;
+                },
+                onHide() {
+                    currentTippy = null;
+                }
+            });
+        });
+
+        // Initialize status badges
+        document.querySelectorAll('.editable-status').forEach(function(badge) {
+            const cveId = badge.getAttribute('data-cve-id');
+            const projectName = badge.getAttribute('data-project-name');
+            const orgName = badge.getAttribute('data-org-name');
+            const currentStatus = badge.getAttribute('data-current-status');
+
+            tippy(badge, {
+                content: createStatusMenu(cveId, currentStatus, projectName, orgName),
+                allowHTML: true,
+                interactive: true,
+                trigger: 'click',
+                placement: 'bottom-start',
+                animation: 'shift-away',
+                theme: 'light-border',
+                maxWidth: 200,
+                onShow(instance) {
+                    if (currentTippy && currentTippy !== instance) {
+                        currentTippy.hide();
+                    }
+                    currentTippy = instance;
+                },
+                onHide() {
+                    currentTippy = null;
+                }
+            });
+        });
+
+        // Event delegation for menu items
+        $(document).on('click', '.floating-menu-item', function(event) {
+            const menuItem = $(this)[0];
+            const cveId = menuItem.getAttribute('data-cve-id');
+            const projectName = menuItem.getAttribute('data-project-name');
+            const orgName = menuItem.getAttribute('data-org-name');
+
+            if (menuItem.hasAttribute('data-assignee-id')) {
+                const assigneeId = menuItem.getAttribute('data-assignee-id');
+                assignUser(cveId, assigneeId, projectName, orgName);
+            } else if (menuItem.hasAttribute('data-status')) {
+                const status = menuItem.getAttribute('data-status');
+                updateStatus(cveId, status, projectName, orgName);
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+        });
+
+        // Auto-fill query field when a view is selected
+        if (window.cveTrackingData && window.cveTrackingData.views) {
+            $('#id_view').on('select2:select select2:clear', function(e) {
+                const selectedViewId = $(this).val();
+                const queryInput = $('#id_query');
+
+                if (selectedViewId) {
+                    const selectedView = window.cveTrackingData.views.find(function(view) {
+                        return view.id === selectedViewId;
+                    });
+                    if (selectedView) {
+                        queryInput.val(selectedView.query);
+                    }
+                } else {
+                    queryInput.val('');
+                }
+            });
+        }
+    }
+  })();
+
+  /*
+   Vendor/Product Quick Subscription
+  */
+  if (window.vendorSubscriptionData && window.vendorSubscriptionData.projects.length > 0) {
+    let currentSubscriptionTippy = null;
+
+    function createProjectMenu(vendorId, vendorName, productId, productName) {
+        const projects = window.vendorSubscriptionData.projects;
+        const objType = productId ? 'product' : 'vendor';
+        const objId = productId || vendorId;
+        const objName = productId ? `${vendorName}$PRODUCT$${productName}` : vendorName;
+
+        let menuHtml = '<div class="floating-menu">';
+        menuHtml += '<div class="floating-menu-title">Select a project</div>';
+
+        projects.forEach(function(project) {
+            let isSubscribed = false;
+            if (objType === 'vendor') {
+                isSubscribed = project.subscriptions.vendors.indexOf(vendorName) !== -1;
+            } else {
+                isSubscribed = project.subscriptions.products.indexOf(objName) !== -1;
+            }
+
+            const action = isSubscribed ? 'unsubscribe' : 'subscribe';
+            const actionLabel = isSubscribed ? 'Unsubscribe' : 'Subscribe';
+            const iconClass = isSubscribed ? 'fa-bell' : 'fa-bell-o';
+
+            menuHtml += `<button class="floating-menu-item ${isSubscribed ? 'selected' : ''}"
+                                data-action="${action}"
+                                data-obj-type="${objType}"
+                                data-obj-id="${objId}"
+                                data-project-id="${project.id}">
+                            <i class="fa ${iconClass}"></i> ${project.name} <span style="opacity: 0.6; font-size: 11px;">(${actionLabel})</span>
+                         </button>`;
+        });
+
+        menuHtml += '</div>';
+        return menuHtml;
+    }
+
+    // Initialize vendor subscription tippy
+    document.querySelectorAll('.subscribe-vendor').forEach(function(element) {
+        const vendorId = element.getAttribute('data-vendor-id');
+        const vendorName = element.getAttribute('data-vendor-name');
+
+        tippy(element, {
+            content: createProjectMenu(vendorId, vendorName, null, null),
+            allowHTML: true,
+            interactive: true,
+            trigger: 'click',
+            placement: 'bottom-start',
+            animation: 'shift-away',
+            theme: 'light-border',
+            maxWidth: 300,
+            onShow(instance) {
+                if (currentSubscriptionTippy && currentSubscriptionTippy !== instance) {
+                    currentSubscriptionTippy.hide();
+                }
+                currentSubscriptionTippy = instance;
+            },
+            onHide() {
+                currentSubscriptionTippy = null;
+            }
+        });
+    });
+
+    // Initialize product subscription tippy
+    document.querySelectorAll('.subscribe-product').forEach(function(element) {
+        const vendorId = element.getAttribute('data-vendor-id');
+        const vendorName = element.getAttribute('data-vendor-name');
+        const productId = element.getAttribute('data-product-id');
+        const productName = element.getAttribute('data-product-name');
+
+        tippy(element, {
+            content: createProjectMenu(vendorId, vendorName, productId, productName),
+            allowHTML: true,
+            interactive: true,
+            trigger: 'click',
+            placement: 'bottom-start',
+            animation: 'shift-away',
+            theme: 'light-border',
+            maxWidth: 300,
+            onShow(instance) {
+                if (currentSubscriptionTippy && currentSubscriptionTippy !== instance) {
+                    currentSubscriptionTippy.hide();
+                }
+                currentSubscriptionTippy = instance;
+            },
+            onHide() {
+                currentSubscriptionTippy = null;
+            }
+        });
+    });
+
+    // Event delegation for subscription menu items
+    $(document).on('click', '.floating-menu-item[data-obj-type]', function(event) {
+        const menuItem = $(this)[0];
+        const action = menuItem.getAttribute('data-action');
+        const objType = menuItem.getAttribute('data-obj-type');
+        const objId = menuItem.getAttribute('data-obj-id');
+        const projectId = menuItem.getAttribute('data-project-id');
+
+        subscribeToVendorProduct(action, objType, objId, projectId);
+
+        event.preventDefault();
+        event.stopPropagation();
+    });
+
+    function subscribeToVendorProduct(action, objType, objId, projectId) {
+        // Find the trigger element using the current tippy instance before hiding it
+        let triggerElement = null;
+        if (currentSubscriptionTippy && currentSubscriptionTippy.reference) {
+            triggerElement = currentSubscriptionTippy.reference;
+        } else {
+            // Fallback: find by data attributes
+            if (objType === 'vendor') {
+                triggerElement = document.querySelector('.subscribe-vendor[data-vendor-id="' + objId + '"]');
+            } else {
+                triggerElement = document.querySelector('.subscribe-product[data-product-id="' + objId + '"]');
+            }
+        }
+
+        if (!triggerElement) {
+            console.error('Could not find trigger element');
+            return;
+        }
+
+        const vendorName = triggerElement.getAttribute('data-vendor-name');
+        const productId = triggerElement.getAttribute('data-product-id');
+        const productName = triggerElement.getAttribute('data-product-name');
+
+        // Store reference to triggerElement for use in success callback
+        const buttonElement = triggerElement;
+
+        // Hide tippy after getting the reference
+        if (currentSubscriptionTippy) {
+            currentSubscriptionTippy.hide();
+        }
+
+        $.ajax({
+            url: window.vendorSubscriptionData.url,
+            data: {
+                'action': action,
+                'obj_type': objType,
+                'obj_id': objId,
+                'project_id': projectId
+            },
+            dataType: 'json',
+            type: 'POST',
+            success: function(data) {
+                if (data.status === 'ok') {
+                    // Update the project subscription status in the data
+                    const projects = window.vendorSubscriptionData.projects;
+                    const project = projects.find(p => p.id === projectId);
+                    if (project) {
+                        if (objType === 'vendor') {
+                            if (action === 'subscribe') {
+                                if (project.subscriptions.vendors.indexOf(vendorName) === -1) {
+                                    project.subscriptions.vendors.push(vendorName);
+                                }
+                            } else {
+                                const index = project.subscriptions.vendors.indexOf(vendorName);
+                                if (index !== -1) {
+                                    project.subscriptions.vendors.splice(index, 1);
+                                }
+                            }
+                        } else {
+                            const objName = `${vendorName}$PRODUCT$${productName}`;
+                            if (action === 'subscribe') {
+                                if (project.subscriptions.products.indexOf(objName) === -1) {
+                                    project.subscriptions.products.push(objName);
+                                }
+                            } else {
+                                const index = project.subscriptions.products.indexOf(objName);
+                                if (index !== -1) {
+                                    project.subscriptions.products.splice(index, 1);
+                                }
+                            }
+                        }
+                    }
+
+                    // Update the tippy content with the new subscription state
+                    if (buttonElement && buttonElement._tippy) {
+                        const vendorId = buttonElement.getAttribute('data-vendor-id');
+                        buttonElement._tippy.setContent(createProjectMenu(vendorId, vendorName, productId, productName));
+                    }
+
+                    // Recalculate and update the subscription count in the button
+                    if (buttonElement) {
+                        const projects = window.vendorSubscriptionData.projects;
+                        let count = 0;
+
+                        if (objType === 'vendor') {
+                            // Count how many projects have this vendor subscribed
+                            projects.forEach(function(p) {
+                                if (p.subscriptions.vendors.indexOf(vendorName) !== -1) {
+                                    count++;
+                                }
+                            });
+                        } else {
+                            // Count how many projects have this product subscribed
+                            const objName = `${vendorName}$PRODUCT$${productName}`;
+                            projects.forEach(function(p) {
+                                if (p.subscriptions.products.indexOf(objName) !== -1) {
+                                    count++;
+                                }
+                            });
+                        }
+
+                        // Update button text with new count
+                        const iconElement = buttonElement.querySelector('i');
+                        let buttonText;
+                        if (count > 0) {
+                            buttonText = 'Subscribed (' + count + ')';
+                        } else {
+                            buttonText = 'Subscribe';
+                        }
+
+                        if (iconElement) {
+                            const iconClass = iconElement.className;
+                            buttonElement.innerHTML = '<i class="' + iconClass + '"></i> ' + buttonText;
+                        } else {
+                            // Fallback if icon not found
+                            buttonElement.innerHTML = '<i class="fa fa-bell-o"></i> ' + buttonText;
+                        }
+
+                        // Add success flash effect
+                        buttonElement.classList.add('subscribe-success');
+                        setTimeout(function() {
+                            buttonElement.classList.remove('subscribe-success');
+                        }, 600);
+                    }
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('Subscription error:', error);
+            }
+        });
+    }
+  }
+
+});

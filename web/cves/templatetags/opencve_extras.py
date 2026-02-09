@@ -2,9 +2,11 @@ import hashlib
 import json
 import logging
 from datetime import datetime
+from urllib.parse import quote
 
 from django import template
 from django.conf import settings
+from django.templatetags.static import static
 from django.urls import reverse
 from django.utils.http import urlencode
 from django.utils.safestring import mark_safe
@@ -60,10 +62,6 @@ def excerpt(objects, _type):
         elif _type == "vendors":
             query_kwargs = urlencode({"vendor": obj})
             output += f"<a href='{base_url}?{query_kwargs}'>{humanize(obj)}</a>"
-        """else:
-            url = url_for("main.cves", tag=obj)
-            tag = UserTag.query.filter_by(user_id=current_user.id, name=obj).first()
-            output += f"<a href='{url}'><span class='label label-tag' style='background-color: {tag.color};'>{obj}</span></a>"""
 
         output += ", " if idx + 1 != len(objects) and _type != "tags" else " "
 
@@ -216,9 +214,12 @@ def search_vendor_url(s):
 
     if PRODUCT_SEPARATOR in s:
         vendor, product = s.split(PRODUCT_SEPARATOR)
-        return f"{base_url}?vendor={vendor}&product={product}"
+        vendor_encoded = quote(vendor)
+        product_encoded = quote(product)
+        return f"{base_url}?vendor={vendor_encoded}&product={product_encoded}"
 
-    return f"{base_url}?vendor={s}"
+    vendor_encoded = quote(s)
+    return f"{base_url}?vendor={vendor_encoded}"
 
 
 @register.filter
@@ -260,7 +261,7 @@ def is_active_project_link(context, *args):
     if "/projects/" not in resolver.route:
         return ""
 
-    current_project_name = resolver.kwargs.get("name")
+    current_project_name = resolver.kwargs.get("project_name")
     if not current_project_name:
         return ""
     elif current_project_name == args[0]:
@@ -299,3 +300,79 @@ def get(mapping, key):
     Used to return data when a space is contained in the key.
     """
     return mapping.get(key, "")
+
+
+@register.filter
+def get_item(value, arg):
+    for item in value:
+        if item.grouper == arg:
+            return item.list
+    return None
+
+
+def needs_quotes(value: str) -> bool:
+    special_chars = set(r""" :'"()[]{}&|=!\<>+*?^~""")
+
+    return any(char in special_chars for char in value) or "\\" in value or " " in value
+
+
+@register.simple_tag
+def get_active_cvss_tab(cve):
+    """
+    Determine which CVSS tab should be active by default based on priority.
+    Priority order: CVSS v4.0 > v3.1 > v3.0 > v2.0 > fallback to v4.0
+    """
+    if cve.cvssV4_0:
+        return "cvss40"
+    elif cve.cvssV3_1:
+        return "cvss31"
+    elif cve.cvssV3_0:
+        return "cvss30"
+    elif cve.cvssV2_0:
+        return "cvss2"
+    else:
+        return "cvss40"
+
+
+@register.simple_tag
+def advisory_source_display(source):
+    """
+    Display advisory source with icon and formatted text.
+    """
+    source_mapping = {
+        "euvd": "EUVD",
+        "usn": "Ubuntu USN",
+        "dsa": "Debian DSA",
+        "dla": "Debian DLA",
+        "ghsa": "Github GHSA",
+    }
+
+    source_lower = source.lower()
+    display_text = source_mapping.get(source_lower, source)
+
+    icon_url = static(f"img/sources/{source_lower}.png")
+
+    return mark_safe(
+        f'<img src="{icon_url}" alt="{display_text}" style="width: 22px; margin-right: 4px; vertical-align: middle;"> {display_text}'
+    )
+
+
+@register.filter
+def tracker_status_badge_class(status):
+    """
+    Returns the badge class for a given tracker status.
+    """
+    if not status:
+        return "badge-secondary"
+
+    status_classes = {
+        "to_evaluate": "badge-secondary",
+        "pending_review": "badge-secondary",
+        "analysis_in_progress": "badge-info",
+        "remediation_in_progress": "badge-info",
+        "evaluated": "badge-success",
+        "resolved": "badge-success",
+        "not_applicable": "badge-warning",
+        "risk_accepted": "badge-warning",
+    }
+    return status_classes.get(status, "badge-secondary")

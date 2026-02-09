@@ -138,7 +138,8 @@ add-config-files() {
         display-and-exec "copying airflow config file" cp "$_AIRFLOW_CONFIG_FILE.example" "$_AIRFLOW_CONFIG_FILE"
         local _START_DATE
         _START_DATE=$(date '+%Y-%m-%d')
-        display-and-exec "updating start date for Airflow dag" sed -i.bak "s/start_date = .*/start_date = $_START_DATE/g" "$_AIRFLOW_CONFIG_FILE" && rm -f "$_AIRFLOW_CONFIG_FILE.bak"
+        display-and-exec "updating start date for opencve dag" sed -i.bak "s/start_date = .*/start_date = $_START_DATE/g" "$_AIRFLOW_CONFIG_FILE" && rm -f "$_AIRFLOW_CONFIG_FILE.bak"
+        display-and-exec "updating start date for summarize_reports dag" sed -i.bak "s/start_date_summarize_reports = .*/start_date_summarize_reports = $_START_DATE/g" "$_AIRFLOW_CONFIG_FILE" && rm -f "$_AIRFLOW_CONFIG_FILE.bak"
         local _CONFIGURED_START_DATE
         _CONFIGURED_START_DATE=$(grep 'start_date' "$_AIRFLOW_CONFIG_FILE")
         log "Default configuration: $_CONFIGURED_START_DATE"
@@ -190,10 +191,10 @@ docker-up() {
     display-and-exec "starting OpenCVE docker stack" docker compose up -d
 
     log "\n--------| Collect static files from Django webserver"
-    display-and-exec "collecting latest static files" -q docker exec webserver python manage.py collectstatic --no-input
+    display-and-exec "collecting latest static files" -q docker compose exec webserver python manage.py collectstatic --no-input
 
     log "\n--------| Apply Django webserver DB migration"
-    display-and-exec "migrating DB schema with latest changes" -q docker exec webserver python manage.py migrate
+    display-and-exec "migrating DB schema with latest changes" -q docker compose exec webserver python manage.py migrate
 }
 
 # Function to set Airflow connections
@@ -201,8 +202,8 @@ set-airflow-connections() {
     export $(grep -v '^#' .env | grep -E '^POSTGRES' | tr '\n' ' ')
 
     log "\n--------| Add Airflow connections"
-    display-and-exec "adding Postgresql Airflow connection" -q docker exec airflow-scheduler airflow connections add opencve_postgres --conn-uri "postgres://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/opencve"
-    display-and-exec "adding Redis Airflow connection" -q docker exec airflow-scheduler airflow connections add opencve_redis --conn-uri "redis://redis:6379" --conn-extra '{"db": 3}'
+    display-and-exec "adding Postgresql Airflow connection" -q docker compose exec airflow-scheduler airflow connections add opencve_postgres --conn-uri "postgres://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/opencve"
+    display-and-exec "adding Redis Airflow connection" -q docker compose exec airflow-scheduler airflow connections add opencve_redis --conn-uri "redis://redis:6379" --conn-extra '{"db": 3}'
 
     unset POSTGRES_USER
     unset POSTGRES_PASSWORD
@@ -212,7 +213,7 @@ set-airflow-connections() {
 init-secret-key() {
     log "\n--------| Generate OpenCVE secret key"
 
-    export _OPENCVE_SECRET_KEY=$(docker exec webserver python manage.py generate_secret_key | sed -e 's/[&!$]//g')
+    export _OPENCVE_SECRET_KEY=$(docker compose exec webserver python manage.py generate_secret_key | sed -e 's/[&!$]//g')
 
     display-and-exec "cleaning old OpenCVE secret key" sed -i.bak "s/^OPENCVE_SECRET_KEY=.*/OPENCVE_SECRET_KEY=/g" ../web/opencve/conf/.env
     display-and-exec "updating with new OpenCVE secret key" sed -i.bak "s,^OPENCVE_SECRET_KEY=.*,OPENCVE_SECRET_KEY='$_OPENCVE_SECRET_KEY',g" ../web/opencve/conf/.env && rm -f ../web/opencve/conf/.env.bak
@@ -227,40 +228,40 @@ init-docker-stack() {
     init-secret-key
 
     log "\n--------| Webserver restart"
-    display-and-exec "restarting webserver docker instance" -q docker restart webserver
+    display-and-exec "restarting webserver docker instance" -q docker compose restart webserver
 }
 
 # Function to clone necessary repositories
 clone-repositories() {
     log "\n--------| Initialize OpenCVE repositories"
-    display-and-exec "cloning opencve-kb" docker exec airflow-scheduler git clone https://github.com/opencve/opencve-kb.git /home/airflow/repositories/opencve-kb
-    display-and-exec "cloning opencve-nvd" docker exec airflow-scheduler git clone https://github.com/opencve/opencve-nvd.git /home/airflow/repositories/opencve-nvd
-    display-and-exec "cloning opencve-redhat" docker exec airflow-scheduler git clone https://github.com/opencve/opencve-redhat.git /home/airflow/repositories/opencve-redhat
-    display-and-exec "cloning cvelistV5" docker exec airflow-scheduler git clone https://github.com/CVEProject/cvelistV5.git /home/airflow/repositories/cvelistV5
-    display-and-exec "cloning vulnrichment" docker exec airflow-scheduler git clone https://github.com/cisagov/vulnrichment.git /home/airflow/repositories/vulnrichment
+    display-and-exec "cloning opencve-kb" docker compose exec airflow-scheduler git clone https://github.com/opencve/opencve-kb.git /home/airflow/repositories/opencve-kb
+    display-and-exec "cloning opencve-nvd" docker compose exec airflow-scheduler git clone https://github.com/opencve/opencve-nvd.git /home/airflow/repositories/opencve-nvd
+    display-and-exec "cloning opencve-redhat" docker compose exec airflow-scheduler git clone https://github.com/opencve/opencve-redhat.git /home/airflow/repositories/opencve-redhat
+    display-and-exec "cloning cvelistV5" docker compose exec airflow-scheduler git clone https://github.com/CVEProject/cvelistV5.git /home/airflow/repositories/cvelistV5
+    display-and-exec "cloning vulnrichment" docker compose exec airflow-scheduler git clone https://github.com/cisagov/vulnrichment.git /home/airflow/repositories/vulnrichment
 }
 
 # Function to import OpenCVE KB
 import-opencve-kb() {
     log "\n--------| Import OpenCVE KB inside the database, it can take 10 to 30 min"
-    display-and-exec "importing CVEs" docker exec webserver python manage.py import_cves
+    display-and-exec "importing CVEs" docker compose exec webserver python manage.py import_cves
 }
 
 # Function to start the OpenCVE DAG
 start-opencve-dag() {
     log "\n--------| Unpause Airflow OpenCVE dag to start to update local repositories and alerts"
-    display-and-exec "unpausing OpenCVE Airflow dag" -q docker exec airflow-scheduler airflow dags unpause opencve
+    display-and-exec "unpausing OpenCVE Airflow dag" -q docker compose exec airflow-scheduler airflow dags unpause opencve
 }
 
 # Function to create a superuser
 create-superuser() {
     log "\n--------| Create OpenCVE admin user"
-    display-and-exec "creating OpenCVE admin user" docker exec -it webserver python manage.py createsuperuser
+    display-and-exec "creating OpenCVE admin user" docker compose exec -it webserver python manage.py createsuperuser
 
     export $(grep -v '^#' .env | grep -E '^POSTGRES' | tr '\n' ' ')
 
     log "\n--------| Auto confirm the created user"
-    display-and-exec "confirming the created admin user" -q docker exec postgres psql -U "$POSTGRES_USER" -c "INSERT INTO account_emailaddress(email, verified, \"primary\", user_id) SELECT email, 1::bool, 1::bool, id FROM opencve_users ON CONFLICT (user_id, email) DO NOTHING;"
+    display-and-exec "confirming the created admin user" -q docker compose exec postgres psql -U "$POSTGRES_USER" -c "INSERT INTO account_emailaddress(email, verified, \"primary\", user_id) SELECT email, 1::bool, 1::bool, id FROM opencve_users ON CONFLICT (user_id, email) DO NOTHING;"
 
     unset POSTGRES_USER
     unset POSTGRES_PASSWORD
@@ -299,53 +300,54 @@ display-usage() {
     local _BOLD="\033[1m"
     local _NC="\033[0m"
 
-    log "\n${_BOLD}USAGE${_NC}"
-    log "%${_S1}s./install.sh [OPTIONS] COMMANDS"
+    printf "\n${_BOLD}USAGE${_NC}"
+    printf "\n%${_S1}s ./install.sh [OPTIONS] COMMANDS"
 
-    log "\n${_BOLD}OPTIONS${_NC}"
-    log "%${_S1}s-h"
-    log "%${_S2}sPrint usage statement."
-    log "%${_S1}s-r"
-    log "%${_S2}sRelease or branch to install."
-    log "%${_S2}sDefault: use the latest available release in the local OpenCVE repository."
+    printf "\n\n${_BOLD}OPTIONS${_NC}"
+    printf "\n%${_S1}s -h"
+    printf "\n%${_S2}s Print usage statement."
+    printf "\n%${_S1}s -r"
+    printf "\n%${_S2}s Release or branch to install."
+    printf "\n%${_S2}s Default: use the latest available release in the local OpenCVE repository."
 
-    log "${_BOLD}COMMANDS${_NC}"
-    log "%${_S1}sprepare"
-    log "%${_S2}sIt prepares and adds the default configuration files for OpenCVE. If no OPTION is given, it sets the value for the latest available release."
-    log "%${_S2}sThis is executed if no COMMAND is given. It overrides previous setting files if any."
-    log "%${_S1}sstart"
-    log "%${_S2}sStart and setup the entire OpenCVE stack. It needs to be done after the prepare command."
+    printf "\n\n${_BOLD}COMMANDS${_NC}"
+    printf "\n%${_S1}s prepare"
+    printf "\n%${_S2}s It prepares and adds the default configuration files for OpenCVE. If no OPTION is given, it sets the value for the latest available release."
+    printf "\n%${_S2}s This is executed if no COMMAND is given. It overrides previous setting files if any."
+    printf "\n%${_S1}s start"
+    printf "\n%${_S2}s Start and setup the entire OpenCVE stack. It needs to be done after the prepare command."
 
-    log "${_BOLD}SPECIFIC COMMANDS${_NC}"
-    log "%${_S1}sadd-config-files"
-    log "%${_S2}sAdd default configurations files."
-    log "%${_S1}sinit-docker-stack"
-    log "%${_S2}sPerform docker compose up for OpenCVE stack from its docker-compose.yaml and initialize connections."
-    log "%${_S1}sclone-repositories"
-    log "%${_S2}sClone KB repositories. It needs to be done one time, if you need to retry it, you need to delete the associated docker volume."
-    log "%${_S1}screate-superuser"
-    log "%${_S2}sCreate an OpenCVE super user with admin privileges."
-    log "%${_S1}simport-opencve-kb"
-    log "%${_S2}sImport OpenCVE KB inside local database. It needs to be done only one time."
-    log "%${_S1}sstart-opencve-dag"
-    log "%${_S2}sUnpause OpenCVE Dag in Airflow to start to update local repositories and send alerts."
-    log "%${_S1}sstart-docker"
-    log "%${_S2}sPerform docker compose up with OpenCVE stack from its docker-compose.yaml."
-    log "%${_S1}sbuild-docker"
-    log "%${_S2}sBuild the docker images for OpenCVE stack from its docker-compose.yaml."
-    log "%${_S1}sinit-secret-key"
-    log "%${_S2}sGenerate OpenCVE Django secret key."
+    printf "\n\n${_BOLD}SPECIFIC COMMANDS${_NC}"
+    printf "\n%${_S1}s add-config-files"
+    printf "\n%${_S2}s Add default configurations files."
+    printf "\n%${_S1}s init-docker-stack"
+    printf "\n%${_S2}s Perform docker compose up for OpenCVE stack from its docker-compose.yaml and initialize connections."
+    printf "\n%${_S1}s clone-repositories"
+    printf "\n%${_S2}s Clone KB repositories. It needs to be done one time, if you need to retry it, you need to delete the associated docker volume."
+    printf "\n%${_S1}s create-superuser"
+    printf "\n%${_S2}s Create an OpenCVE super user with admin privileges."
+    printf "\n%${_S1}s import-opencve-kb"
+    printf "\n%${_S2}s Import OpenCVE KB inside local database. It needs to be done only one time."
+    printf "\n%${_S1}s start-opencve-dag"
+    printf "\n%${_S2}s Unpause OpenCVE Dag in Airflow to start to update local repositories and send alerts."
+    printf "\n%${_S1}s docker-up"
+    printf "\n%${_S2}s Perform docker compose up with OpenCVE stack from its docker-compose.yaml."
+    printf "\n%${_S1}s docker-build"
+    printf "\n%${_S2}s Build the docker images for OpenCVE stack from its docker-compose.yaml."
+    printf "\n%${_S1}s init-secret-key"
+    printf "\n%${_S2}s Generate OpenCVE Django secret key."
 
-    log "${_BOLD}EXAMPLES${_NC}"
-    log "%${_S1}s./install.sh"
-    log "%${_S2}sEquivalent to ./install.sh prepare."
-    log "%${_S1}s./install.sh start"
-    log "%${_S2}sIt starts and sets everything up to have a working OpenCVE stack."
-    log "%${_S1}s./install.sh -r master"
-    log "%${_S2}sIt sets the configuration files to install the master branch of OpenCVE. It needs to be done before the start command."
+    printf "\n\n${_BOLD}EXAMPLES${_NC}"
+    printf "\n%${_S1}s ./install.sh"
+    printf "\n%${_S2}s Equivalent to ./install.sh prepare."
+    printf "\n%${_S1}s ./install.sh start"
+    printf "\n%${_S2}s It starts and sets everything up to have a working OpenCVE stack."
+    printf "\n%${_S1}s ./install.sh -r master"
+    printf "\n%${_S2}s It sets the configuration files to install the master branch of OpenCVE. It needs to be done before the start command."
 
-    log "${_BOLD}DOCUMENTATION${_NC}"
-    log "%${_S1}shttps://docs.opencve.io/deployment/"
+    printf "\n\n${_BOLD}DOCUMENTATION${_NC}"
+    printf "\n%${_S1}s https://docs.opencve.io/deployment/"
+    printf "\n"
 }
 
 _RELEASE="latest"

@@ -1,21 +1,25 @@
 import json
 
+import pyparsing as pp
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
+from django.db import models
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.generic import DetailView, ListView, TemplateView
 
 from cves.constants import PRODUCT_SEPARATOR
-from cves.utils import humanize
 from cves.forms import SearchForm
 from cves.models import Cve, Product, Variable, Vendor, Weakness
 from cves.search import Search, BadQueryException, MaxFieldsExceededException
-from cves.utils import list_to_dict_vendors, list_weaknesses, list_filtered_cves
+from cves.templatetags.opencve_extras import needs_quotes
+from cves.utils import humanize, list_to_dict_vendors, list_weaknesses
 from opencve.utils import is_valid_uuid
 from organizations.mixins import OrganizationRequiredMixin
-from projects.models import Project
+from projects.models import Project, CveTracker
 from users.models import CveTag, UserTag
+from views.forms import ViewForm
+from views.models import View
 
 
 class WeaknessListView(ListView):
@@ -72,83 +76,121 @@ class CveListView(ListView):
     template_name = "cves/cve_list.html"
     paginate_by = 20
 
-    def get_search_mode(self):
-        if not self.request.user.is_authenticated:
-            return "basic"
-        elif self.request.GET.get("q"):
-            self.request.user.update_setting("search_mode", "advanced")
-            return "advanced"
-        elif (
-            self.request.GET.get("vendor")
-            or self.request.GET.get("product")
-            or self.request.GET.get("search")
-            or self.request.GET.get("weakness")
-        ):
-            self.request.user.update_setting("search_mode", "basic")
-            return "basic"
-
-        return self.request.user.get_setting("search_mode", "basic")
-
     def get_queryset(self):
-        # Advanced search
-        if self.get_search_mode() == "advanced":
-            self.form = SearchForm(self.request.GET)
+        self.form = SearchForm(self.request.GET)
 
-            search_query = None
-            if self.form.is_valid():
-                search_query = self.form.cleaned_data["q"]
+        # Validate the form
+        search_query = None
+        if not self.form.is_valid():
+            return Cve.objects.order_by("-updated_at").all()
 
-            try:
-                search = Search(search_query, self.request.user)
-                return search.query
-            except (BadQueryException, MaxFieldsExceededException) as e:
-                self.form.add_error("q", e)
-                return Cve.objects.order_by("-updated_at").all()
+        # Convert simple search to advanced search
+        search_query = self.form.cleaned_data["q"]
+        if not search_query:
+            search_query = self.convert_to_advanced_search()
+            mutable_get = self.request.GET.copy()
+            mutable_get["q"] = search_query
 
-        # Basic search
-        return list_filtered_cves(self.request.GET, self.request.user)
+            self.form = SearchForm(mutable_get)
+            self.form.is_valid()
+
+        # Execute the search
+        try:
+            search = Search(search_query, self.request)
+            return search.query
+        except (BadQueryException, MaxFieldsExceededException) as e:
+            self.form.add_error("q", e)
+        except pp.ParseException as e:
+            pass
+
+        return Cve.objects.order_by("-updated_at").all()
+
+    def convert_to_advanced_search(self):
+        """
+        Converts simple GET parameters to an advanced search query string.
+        """
+        advanced_parts = []
+        vendor_value = self.request.GET.get("vendor")
+        product_value = self.request.GET.get("product")
+        search_value = self.request.GET.get("search")
+        weakness_value = self.request.GET.get("weakness")
+        tag_value = self.request.GET.get("tag")
+
+        if vendor_value:
+            if needs_quotes(vendor_value):
+                vendor_value = f"'{vendor_value}'"
+            advanced_parts.append(f"vendor:{vendor_value}")
+
+            if product_value:
+                if needs_quotes(product_value):
+                    product_value = f"'{product_value}'"
+                advanced_parts.append(f"product:{product_value}")
+
+        if weakness_value:
+            advanced_parts.append(f"cwe:{weakness_value}")
+
+        if tag_value and self.request.user.is_authenticated:
+            advanced_parts.append(f"userTag:{tag_value}")
+
+        if search_value:
+            # If multiple words, search in description as a phrase
+            if " " in search_value:
+                advanced_parts.append(f'description:"{search_value}"')
+
+            # If single word, append directly (parser handles it)
+            else:
+                advanced_parts.append(search_value)
+
+        return " AND ".join(advanced_parts)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["search_mode"] = self.get_search_mode()
 
-        if context["search_mode"] == "basic":
-            vendor = self.request.GET.get("vendor", "").replace(" ", "").lower()
-            product = self.request.GET.get("product", "").replace(" ", "_").lower()
-            weakness = self.request.GET.get("weakness", "")
+        # Handle custom titles when vendor, product or weakness is set
+        vendor = self.request.GET.get("vendor", "").replace(" ", "").lower()
+        product = self.request.GET.get("product", "").replace(" ", "_").lower()
+        weakness = self.request.GET.get("weakness", "")
 
-            if weakness:
-                context["title"] = weakness
+        if weakness:
+            context["title"] = weakness
 
-            if vendor:
-                context["vendor"] = Vendor.objects.get(name=vendor)
-                context["title"] = humanize(vendor)
+        if vendor:
+            context["title"] = humanize(vendor)
 
-                if product:
-                    context["product"] = Product.objects.get(
-                        name=product, vendor=context["vendor"]
-                    )
-                    context["title"] = humanize(product)
+        if product:
+            context["title"] = humanize(product)
+
+        if self.request.user.is_authenticated:
 
             # List the user tags
-            if self.request.user.is_authenticated:
-                context["user_tags"] = [
-                    t.name for t in UserTag.objects.filter(user=self.request.user).all()
-                ]
+            context["user_tags"] = [
+                t.name for t in UserTag.objects.filter(user=self.request.user).all()
+            ]
 
-        if context["search_mode"] == "advanced":
-            context["search_form"] = self.form
+            # List the projects
+            context["projects"] = Project.objects.filter(
+                organization=self.request.current_organization
+            ).order_by("name")
+
+        # Provide the search form
+        context["search_form"] = self.form
+
+        # Add organization views
+        if self.request.current_organization:
+            context["view_form"] = ViewForm(request=self.request)
+
+            context["views"] = View.objects.filter(
+                models.Q(
+                    privacy="public", organization=self.request.current_organization
+                )
+                | models.Q(
+                    privacy="private",
+                    user=self.request.user,
+                    organization=self.request.current_organization,
+                )
+            ).order_by("-created_at")
 
         return context
-
-    def post(self, request, *args, **kwargs):
-        current_mode = request.user.get_setting("search_mode", "basic")
-        new_mode = "advanced" if current_mode == "basic" else "basic"
-
-        request.user.update_setting("search_mode", new_mode)
-        request.user.save()
-
-        return redirect("cves")
 
 
 class CveDetailView(DetailView):
@@ -157,42 +199,187 @@ class CveDetailView(DetailView):
     slug_url_kwarg = "cve_id"
     template_name = "cves/cve_detail.html"
 
+    def build_json_context(self, cve):
+        return {
+            "nvd_json": json.dumps(cve.nvd_json),
+            "mitre_json": json.dumps(cve.mitre_json),
+            "redhat_json": json.dumps(cve.redhat_json),
+            "vulnrichment_json": json.dumps(cve.vulnrichment_json),
+            "enrichment_json": json.dumps(cve.enrichment_json),
+        }
+
+    def build_tags_context(self, cve):
+        user = self.request.user
+        if not user.is_authenticated:
+            return {"user_tags": [], "tags": []}
+
+        user_tags = {
+            t.name: {"name": t.name, "color": t.color, "description": t.description}
+            for t in UserTag.objects.filter(user=user)
+        }
+
+        tags = []
+        cve_tags = CveTag.objects.filter(user=user, cve=cve).first()
+        if cve_tags:
+            tags = [user_tags[tag] for tag in cve_tags.tags]
+            encoded = json.dumps(cve_tags.tags)
+        else:
+            encoded = "[]"
+
+        return {
+            "user_tags": user_tags.keys(),
+            "tags": tags,
+            "cve_tags_encoded": encoded,
+        }
+
+    def get_projects(self):
+        return Project.objects.filter(
+            organization=self.request.current_organization
+        ).order_by("name")
+
+    def serialize_projects(self, projects):
+        return json.dumps(
+            [
+                {
+                    "id": str(project.id),
+                    "name": project.name,
+                    "subscriptions": {
+                        "vendors": project.subscriptions.get("vendors", []),
+                        "products": project.subscriptions.get("products", []),
+                    },
+                }
+                for project in projects
+            ]
+        )
+
+    def compute_subscription_counts(self, projects):
+        counts = {}
+
+        for project in projects:
+            for vendor in project.subscriptions.get("vendors", []):
+                counts[vendor] = counts.get(vendor, 0) + 1
+
+            for product in project.subscriptions.get("products", []):
+                counts[product] = counts.get(product, 0) + 1
+
+        return counts
+
+    def build_vendors_data(self, vendors_dict, subscription_counts):
+        if not vendors_dict:
+            return {}
+
+        # Collect all vendor names and product names
+        vendor_names = list(vendors_dict.keys())
+        all_product_names = set()
+        for vendor_name, product_names in vendors_dict.items():
+            all_product_names.update(product_names)
+
+        # Fetch all vendors and products
+        vendors_qs = Vendor.objects.filter(name__in=vendor_names)
+        vendors_by_name = {v.name: v for v in vendors_qs}
+        products_qs = Product.objects.filter(
+            vendor__name__in=vendor_names, name__in=all_product_names
+        ).select_related("vendor")
+
+        # Create a lookup dict: (vendor_name, product_name) -> product_obj
+        products_by_vendor_and_name = {(p.vendor.name, p.name): p for p in products_qs}
+
+        # Build the result structure
+        result = {}
+        for vendor_name, product_names in vendors_dict.items():
+            vendor_obj = vendors_by_name.get(vendor_name)
+            if not vendor_obj:
+                continue
+
+            result[vendor_name] = {
+                "vendor": vendor_obj,
+                "subscription_count": subscription_counts.get(vendor_name, 0),
+                "products": {},
+            }
+
+            for product_name in product_names:
+                product_obj = products_by_vendor_and_name.get(
+                    (vendor_name, product_name)
+                )
+                if not product_obj:
+                    continue
+
+                key = f"{vendor_name}{PRODUCT_SEPARATOR}{product_name}"
+                result[vendor_name]["products"][product_name] = {
+                    "product": product_obj,
+                    "subscription_count": subscription_counts.get(key, 0),
+                }
+
+        return result
+
+    def list_cve_projects(self, cve, projects):
+        """
+        Filter projects that are subscribed to at least one vendor/product of the CVE.
+        """
+        cve_items = set(cve.vendors)
+
+        filtered_projects = [
+            project
+            for project in projects
+            if cve_items.intersection(
+                set(project.subscriptions.get("vendors", []))
+                | set(project.subscriptions.get("products", []))
+            )
+        ]
+
+        # Prefetch trackers once for all filtered projects
+        trackers = CveTracker.objects.filter(
+            cve=cve, project__in=filtered_projects
+        ).select_related("assignee", "project")
+
+        trackers_by_project = {tracker.project_id: tracker for tracker in trackers}
+
+        # Build final list
+        projects_with_trackers = [
+            {"project": project, "tracker": trackers_by_project.get(project.id)}
+            for project in filtered_projects
+        ]
+
+        return projects_with_trackers
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 
-        # Raw json files
-        context["nvd_json"] = json.dumps(context["cve"].nvd_json)
-        context["mitre_json"] = json.dumps(context["cve"].mitre_json)
-        context["redhat_json"] = json.dumps(context["cve"].redhat_json)
-        context["vulnrichment_json"] = json.dumps(context["cve"].vulnrichment_json)
+        cve = context["cve"]
 
-        # Add the associated vendors and weaknesses
-        context["vendors"] = list_to_dict_vendors(
-            context["cve"].kb_json["opencve"]["vendors"]["data"]
+        # JSON context (KB, Mitre...)
+        context.update(self.build_json_context(cve))
+
+        # Vendors / weaknesses
+        context["vendors"] = list_to_dict_vendors(cve.vendors)
+        context["weaknesses"] = list_weaknesses(cve.weaknesses)
+        context["enrichment_vendors"] = list_to_dict_vendors(
+            cve.enrichment_json.get("vendors", [])
         )
-        context["weaknesses"] = list_weaknesses(context["cve"].weaknesses)
 
-        # Get the CVE tags for the authenticated user
-        user_tags = {}
-        tags = []
+        # Tags
+        context.update(self.build_tags_context(cve))
 
-        user = self.request.user
-        if user.is_authenticated:
-            user_tags = {
-                t.name: {"name": t.name, "color": t.color, "description": t.description}
-                for t in UserTag.objects.filter(user=self.request.user).all()
-            }
-            cve_tags = CveTag.objects.filter(
-                user=self.request.user, cve=context["cve"]
-            ).first()
-            if cve_tags:
-                tags = [user_tags[cve_tag] for cve_tag in cve_tags.tags]
+        # Projects + subscription counts
+        if self.request.user.is_authenticated and self.request.current_organization:
+            projects = self.get_projects()
+            context["projects"] = projects
+            context["projects_json"] = self.serialize_projects(projects)
 
-                # We have to pass an encoded list of tags for the modal box
-                context["cve_tags_encoded"] = json.dumps(cve_tags.tags)
+            subscription_counts = self.compute_subscription_counts(projects)
+            context["vendors_data"] = self.build_vendors_data(
+                context["vendors"], subscription_counts
+            )
+            context["enrichment_vendors_data"] = self.build_vendors_data(
+                context["enrichment_vendors"], subscription_counts
+            )
 
-        context["user_tags"] = user_tags.keys()
-        context["tags"] = tags
+            context["filtered_projects"] = self.list_cve_projects(cve, projects)
+            context["organization_members"] = (
+                self.request.current_organization.get_members(active=True)
+            )
+            context["status_choices"] = CveTracker.STATUS_CHOICES
+
         return context
 
     def post(self, request, *args, **kwargs):
@@ -250,7 +437,7 @@ class SubscriptionView(LoginRequiredMixin, OrganizationRequiredMixin, TemplateVi
                 "object_type": obj_type,
                 "object_name": obj_name,
                 "projects": Project.objects.filter(
-                    organization=self.request.user_organization
+                    organization=self.request.current_organization
                 )
                 .order_by("name")
                 .all(),
@@ -276,7 +463,7 @@ class SubscriptionView(LoginRequiredMixin, OrganizationRequiredMixin, TemplateVi
 
         # Check if the project belongs to the current organization
         project = get_object_or_404(
-            Project, id=project_id, organization=request.user_organization
+            Project, id=project_id, organization=request.current_organization
         )
 
         # Vendor subscription

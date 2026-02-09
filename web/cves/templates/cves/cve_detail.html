@@ -16,13 +16,17 @@
         <div class="col-md-9">
             <div class="box box-primary">
                 <div class="box-body">
-                    {{ cve.description }}
+                    {{ cve.description|linebreaksbr }}
                 </div>
             </div>
 
             {% include "cves/metrics/base.html" %}
 
             {% include "cves/_configurations.html" %}
+
+            {% include "cves/_advisories.html" %}
+
+            {% include "cves/_fixes.html" %}
 
             {% include "cves/_references.html" %}
 
@@ -73,6 +77,65 @@
         <div class="col-md-3">
             <div class="box box-primary">
                 <div class="box-header">
+                    <h3 class="box-title">Projects</h3>
+                    <div class="box-tools pull-right">
+                        <i class="fa fa-info-circle" data-toggle="tooltip" data-container="body" data-placement="left" title="Projects appear here if they subscribe to at least one vendor or product affected by this CVE."></i>
+                    </div>
+                </div>
+                <div class="box-body" id="cves-tracking-list">
+                    {% if user.is_authenticated and filtered_projects %}
+                        {% for project_data in filtered_projects %}
+                            {% with project=project_data.project tracker=project_data.tracker %}
+                            <div class="project-assignment-item">
+                                <div class="project-assignment-item-header">
+                                    <strong>{{ project.name }}</strong>
+                                </div>
+                                <div class="project-assignment-item-badges">
+                                    <div>
+                                        {% include "cves/_assignee_badge.html" with cve_id=cve.cve_id project_name=project.name org_name=request.current_organization.name %}
+                                    </div>
+                                    <div>
+                                        {% include "cves/_status_badge.html" with cve_id=cve.cve_id project_name=project.name org_name=request.current_organization.name %}
+                                    </div>
+                                </div>
+                                {% if not forloop.last %}<hr />{% endif %}
+                            </div>
+                            {% endwith %}
+                        {% endfor %}
+                    {% elif user.is_authenticated %}
+                        <p class="text-muted"><em>No projects match this CVE’s vendors or products.</em></p>
+                    {% else %}
+                        <p class="text-muted"><em><a href="{% url 'account_login' %}">Sign in</a> to view the affected projects.</em></p>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if user.is_authenticated %}
+            <div class="box box-primary">
+                <div class="box-header">
+                    <h3 class="box-title">Tags</h3>
+                    <div class="box-tools pull-right">
+                        <button type="button" class="btn btn-box-tool" data-toggle="modal" data-target="#modal-tags"><i class="fa fa-edit"></i></button>
+                    </div>
+                </div>
+                <div class="box-body">
+                    {% if tags %}
+                    {% for tag in tags %}
+                    <a href="{% url 'cves' %}?tag={{ tag.name }}" data-toggle="tooltip" data-container="body" title="{{ tag.description }}">
+                        <span class="label label-tag" style="background-color: {{ tag.color }};">{{ tag.name }}</span>
+                    </a>
+                    {% endfor %}
+                    {% else %}
+                    <p class="text-muted"><em>No tag found for this CVE.</em></p>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="col-md-3">
+            <div class="box box-primary">
+                <div class="box-header">
                     <div class="box-title">
                         <img src="{% static 'img/cve-icon.png' %}" class="provider-icon" alt="cve-icon" />
                         MITRE
@@ -90,9 +153,13 @@
                     <p><strong>Status:</strong> {{ cve.mitre_json.cveMetadata.state }}</p>
                     <p><strong>Assigner:</strong> {{ cve.mitre_json.cveMetadata.assignerShortName }}</p>
                     <p><strong>Published:</strong>
+                        {% if cve.mitre_json.cveMetadata.datePublished %}
                         <time datetime="{{ cve.mitre_json.cveMetadata.datePublished|convert_str_date|date:'Y-m-d\TH:i:s' }}">
                             {{ cve.mitre_json.cveMetadata.datePublished }}
                         </time>
+                        {% else %}
+                        No published date
+                        {% endif %}
                     </p>
                     <p><strong>Updated:</strong> {{ cve.mitre_json.cveMetadata.dateUpdated }}</p>
                     <p><strong>Reserved:</strong> {{ cve.mitre_json.cveMetadata.dateReserved }}</p>
@@ -185,25 +252,29 @@
                 {% endif %}
             </div>
 
-            {% if user.is_authenticated %}
             <div class="box box-primary">
-                <div class="box-header with-border">
-                    <h3 class="box-title">Tags</h3>
-                    <div class="box-tools pull-right">
-                        <button type="button" class="btn btn-box-tool" data-toggle="modal" data-target="#modal-tags"><i class="fa fa-edit"></i></button>
+                <div class="box-header">
+                    <div class="box-title">
+                        <img src="{% static 'img/opencve_32.png' %}" class="provider-icon" style="width: 28px;" alt="cve-icon" />
+                        OpenCVE Enrichment
                     </div>
-                </div>
-                <div class="box-body">
-                    {% if tags %}
-                    {% for tag in tags %}
-                    <a href="{% url 'cves' %}?tag={{ tag.name }}" data-toggle="tooltip" data-container="body" title="{{ tag.description }}">
-                        <span class="label label-tag" style="background-color: {{ tag.color }};">{{ tag.name }}</span>
-                    </a>
-                    {% endfor %}
-                    {% else %}
-                    <p class="alert alert-info">No tag.</p>
+                    {% if cve.enrichment_json %}
+                    <div class="box-tools pull-right">
+                        <div class="btn-group" data-toggle="btn-toggle">
+                            <button type="button" class="btn btn-default btn-sm" data-toggle="modal" data-target="#modal-enrichment-json"><i class="fa fa-code"></i></button>
+                        </div>
+                    </div>
                     {% endif %}
                 </div>
+                {% if cve.enrichment_json %}
+                <div class="box-body">
+                    <p><strong>Updated:</strong> {{ cve.enrichment_json.updated|convert_str_date|date:"Y-m-d\TH:i:s" }}Z</p>
+                </div>
+                {% else %}
+                <div class="box-body">
+                    <p class="alert alert-info">No data.</p>
+                </div>
+                {% endif %}
             </div>
 
             <div class="box box-primary">
@@ -225,7 +296,6 @@
                     {% endif %}
                 </div>
             </div>
-            {% endif %}
 
         </div>
     </div>
@@ -304,6 +374,24 @@
     </div>
 </div>
 
+<div class="modal fade" id="modal-enrichment-json">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span></button>
+                <h4 class="modal-title">JSON object</h4>
+            </div>
+            <div class="modal-body codejson">
+                {{ enrichment_json }}
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default pull-right" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 
 {% if user.is_authenticated %}
 <div class="modal fade" id="modal-tags">
@@ -338,5 +426,37 @@
 </div>
 {% endif %}
 
+{% if user.is_authenticated and projects_json %}
+<script>
+window.vendorSubscriptionData = {
+    projects: {{ projects_json|safe }},
+    url: "{% url 'subscribe' %}"
+};
+</script>
+{% endif %}
+
+{% if user.is_authenticated and filtered_projects %}
+<script>
+window.cveTrackingData = {
+    organizationMembers: [
+        {% for member in organization_members %}
+        {
+            id: "{{ member.id }}",
+            username: "{{ member.username|escapejs }}",
+            email: "{{ member.email|escapejs }}"
+        }{% if not forloop.last %},{% endif %}
+        {% endfor %}
+    ],
+    statusChoices: [
+        {% for status_key, status_label in status_choices %}
+        {
+            key: "{{ status_key|escapejs }}",
+            label: "{{ status_label|escapejs }}"
+        }{% if not forloop.last %},{% endif %}
+        {% endfor %}
+    ],
+};
+</script>
+{% endif %}
 
 {% endblock %}

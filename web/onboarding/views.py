@@ -12,6 +12,7 @@ from onboarding.forms import OnboardingForm
 from organizations.models import Membership, Organization
 from projects.models import Notification, Project
 from users.models import UserTag, CveTag
+from views.models import View
 
 
 class OnboardingFormView(LoginRequiredMixin, SuccessMessageMixin, FormView):
@@ -28,9 +29,20 @@ class OnboardingFormView(LoginRequiredMixin, SuccessMessageMixin, FormView):
         """
         The onboarding process is only available for user without organization.
         """
-        if request.user.is_authenticated and request.user_organization:
+        if request.user.is_authenticated and request.current_organization:
             return redirect("home")
         return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+
+        # Get pending invitations for this user
+        pending_invitations = Membership.objects.filter(
+            user=self.request.user, date_joined__isnull=True
+        ).select_related("organization")
+
+        context["pending_invitations"] = pending_invitations
+        return context
 
     @transaction.atomic
     def form_valid(self, form):
@@ -98,5 +110,14 @@ class OnboardingFormView(LoginRequiredMixin, SuccessMessageMixin, FormView):
             elif tag.name not in cve_tag.tags:
                 cve_tag.tags.append(tag.name)
                 cve_tag.save()
+
+        # Create an example view
+        View.objects.create(
+            name="High Python Vulns",
+            query="vendor:python AND cvss31>=7",
+            privacy="private",
+            organization=organization,
+            user=self.request.user,
+        )
 
         return super().form_valid(form)
